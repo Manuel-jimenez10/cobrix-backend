@@ -17,7 +17,7 @@ import { limitarTono } from '../shared/politicas.js';
 import { aISO, resumenPorReglas, sugerirPorReglas, type DatosResumen, type PromesaDetectada, type Sugerencia } from '../shared/asistente-reglas.js';
 import type { ClienteResumen, Tono } from '../shared/types.js';
 import { redactar } from './redactor.js';
-import { conLimite, hoyTexto, iaDisponible, modelo, opcionesRapidas, registrarErrorIA } from './modelo.js';
+import { conIA, conLimite, hoyTexto, iaLista, modelo, opcionesRapidas, REINTENTOS } from './modelo.js';
 
 export type Origen = 'ia' | 'plantilla';
 
@@ -51,34 +51,94 @@ function contexto(db: Db, c: ClienteResumen) {
 
 /* ───────────── Redactar recordatorio ───────────── */
 
+const REGLAS_REDACCION = [
+  'Escribes recordatorios de cobranza por WhatsApp para una PyME mexicana. Una persona del equipo los revisará y los enviará desde su propio WhatsApp.',
+  'Reglas: español de México, trato de tú, máximo 420 caracteres, sin emojis excesivos (máximo 1), sin saludos genéricos de robot.',
+  'Incluye el nombre del cliente, el o los folios y el saldo EXACTO tal como aparece. Termina pidiendo una fecha de pago o una respuesta.',
+  'No inventes datos: nada de cuentas bancarias, descuentos, recargos con cifras, ni fechas que no estén en los datos. No amenaces salvo lo que permita el tono.',
+  'Si hay historial, tómalo en cuenta (por ejemplo, si prometió pagar y no lo hizo, menciónalo con respeto).'
+].join('\n');
+
+/** El monto exacto es obligatorio: si la IA lo cambió u omitió, se usa la plantilla. */
+function valido(texto: string, c: ClienteResumen) {
+  const t = texto.trim().replace(/^["“]|["”]$/g, '');
+  return t.length >= 40 && t.length <= 700 && t.includes(partesMonto(c.deuda).entero) ? t : null;
+}
+
+const fichaCliente = (db: Db, c: ClienteResumen, t: Tono) =>
+  `${contexto(db, c)}\nTono: ${TONOS[t]}\nHistorial reciente:\n${historial(db, c.id, 4) || '(sin mensajes previos)'}\nPlantilla de referencia (mejórala y personalízala):\n${redactar(db, c, t).contenido}`;
+
 export async function redactarRecordatorio(db: Db, c: ClienteResumen, tono: Tono, usarIA: boolean): Promise<{ texto: string; tono: Tono; origen: Origen }> {
   const t = limitarTono(tono, db.perfil.politicas);
   const plantilla = redactar(db, c, t).contenido;
-  if (!usarIA || !iaDisponible) return { texto: plantilla, tono: t, origen: 'plantilla' };
+  if (!usarIA || !iaLista()) return { texto: plantilla, tono: t, origen: 'plantilla' };
   try {
-    const { text } = await generateText({
-      model: modelo(),
-      providerOptions: opcionesRapidas,
-      abortSignal: conLimite(15_000),
-      temperature: 0.6,
-      system: [
-        'Escribes recordatorios de cobranza por WhatsApp para una PyME mexicana. Una persona del equipo lo revisará y lo enviará desde su propio WhatsApp.',
-        'Reglas: español de México, trato de tú, máximo 420 caracteres, sin emojis excesivos (máximo 1), sin saludos genéricos de robot.',
-        'Incluye el nombre del cliente, el o los folios y el saldo EXACTO tal como aparece. Termina pidiendo una fecha de pago o una respuesta.',
-        'No inventes datos: nada de cuentas bancarias, descuentos, recargos con cifras, ni fechas que no estén en los datos. No amenaces salvo lo que permita el tono.',
-        'Si hay historial, tómalo en cuenta (por ejemplo, si prometió pagar y no lo hizo, menciónalo con respeto). Devuelve solo el mensaje, sin comillas.'
-      ].join('\n'),
-      prompt: `${contexto(db, c)}\n\nTono: ${TONOS[t]}\n\nHistorial reciente:\n${historial(db, c.id) || '(sin mensajes previos)'}\n\nPlantilla de referencia (mejórala y personalízala):\n${plantilla}`
-    });
-    const texto = text.trim().replace(/^["“]|["”]$/g, '');
-    // El monto exacto es obligatorio: si la IA lo cambió u omitió, usamos la plantilla.
-    const cifra = partesMonto(c.deuda).entero;
-    if (texto.length < 40 || texto.length > 700 || !texto.includes(cifra)) return { texto: plantilla, tono: t, origen: 'plantilla' };
-    return { texto, tono: t, origen: 'ia' };
-  } catch (error) {
-    registrarErrorIA('Asistente/redactar', error);
+    const { text } = await conIA('Asistente/redactar', (i) =>
+      generateText({
+        model: modelo(i),
+        maxRetries: REINTENTOS,
+        providerOptions: opcionesRapidas,
+        abortSignal: conLimite(20_000),
+        temperature: 0.6,
+        system: `${REGLAS_REDACCION}\nDevuelve solo el mensaje, sin comillas.`,
+        prompt: fichaCliente(db, c, t)
+      })
+    );
+    const texto = valido(text, c);
+    return texto ? { texto, tono: t, origen: 'ia' } : { texto: plantilla, tono: t, origen: 'plantilla' };
+  } catch {
     return { texto: plantilla, tono: t, origen: 'plantilla' };
   }
+}
+
+/** Máximo de clientes por llamada al redactar en lote (prompts muy largos tardan más). */
+const POR_LOTE = 8;
+
+/**
+ * Redacta TODA la tanda en una sola llamada (o pocas, de 8 en 8) en lugar de una por cliente:
+ * con 7 clientes son 1 solicitud a Gemini en vez de 7, que es lo que agotaba la cuota.
+ */
+export async function redactarLote(
+  db: Db,
+  items: { c: ClienteResumen; tono: Tono }[],
+  usarIA: boolean,
+  onListo?: (clienteId: string) => void
+): Promise<Map<string, { texto: string; tono: Tono; origen: Origen }>> {
+  const salida = new Map<string, { texto: string; tono: Tono; origen: Origen }>();
+  const base = items.map(({ c, tono }) => {
+    const t = limitarTono(tono, db.perfil.politicas);
+    return { c, t, plantilla: redactar(db, c, t).contenido };
+  });
+
+  for (let desde = 0; desde < base.length; desde += POR_LOTE) {
+    const grupo = base.slice(desde, desde + POR_LOTE);
+    let deIA = new Map<string, string>();
+    if (usarIA && iaLista()) {
+      try {
+        const { object } = await conIA('Asistente/redactar-lote', (i) =>
+          generateObject({
+            model: modelo(i),
+            maxRetries: REINTENTOS,
+            providerOptions: opcionesRapidas,
+            abortSignal: conLimite(30_000),
+            temperature: 0.6,
+            schema: z.object({ mensajes: z.array(z.object({ id: z.string(), texto: z.string() })) }),
+            system: `${REGLAS_REDACCION}\nRecibirás varios clientes; escribe un mensaje distinto para cada uno y devuélvelos con su id.`,
+            prompt: grupo.map((g, k) => `### Cliente id=${k + 1}\n${fichaCliente(db, g.c, g.t)}`).join('\n\n')
+          })
+        );
+        deIA = new Map(object.mensajes.map((m) => [m.id.replace(/\D/g, ''), m.texto]));
+      } catch {
+        /* el grupo completo usa plantillas */
+      }
+    }
+    grupo.forEach((g, k) => {
+      const texto = deIA.has(String(k + 1)) ? valido(deIA.get(String(k + 1))!, g.c) : null;
+      salida.set(g.c.id, texto ? { texto, tono: g.t, origen: 'ia' } : { texto: g.plantilla, tono: g.t, origen: 'plantilla' });
+      onListo?.(g.c.id);
+    });
+  }
+  return salida;
 }
 
 /* ───────────── Sugerir respuestas + detectar promesa ───────────── */
@@ -102,19 +162,26 @@ const esquemaSugerencias = z.object({
   })
 });
 
-export async function sugerirRespuestas(db: Db, c: ClienteResumen, usarIA: boolean): Promise<ResultadoSugerencias> {
+/** Las sugerencias se guardan por mensaje del cliente: abrir la ficha otra vez no vuelve a llamar a la IA. */
+const cacheSugerencias = new Map<string, ResultadoSugerencias>();
+
+export async function sugerirRespuestas(db: Db, c: ClienteResumen, pedirCuota: () => boolean): Promise<ResultadoSugerencias> {
   const ultimos = db.mensajes.filter((m) => m.clienteId === c.id);
   const ultimoCliente = [...ultimos].reverse().find((m) => m.rol === 'cliente');
   const folios = facturasAbiertas(db, c.id).map((f) => f.folio).join(' y ');
   const reglas = () => ({ ...sugerirPorReglas(ultimoCliente?.contenido ?? '', { nombre: primerNombre(c.nombre), deuda: c.deuda, folios }), origen: 'plantilla' as const });
   if (!ultimoCliente) return { ...reglas(), promesa: null };
-  if (!usarIA || !iaDisponible) return reglas();
+  const clave = `${c.id}:${ultimoCliente.id}`;
+  const previo = cacheSugerencias.get(clave);
+  if (previo) return previo;
+  if (!iaLista() || !pedirCuota()) return reglas();
 
   try {
-    const { object } = await generateObject({
-      model: modelo(),
+    const { object } = await conIA('Asistente/sugerir', (i) => generateObject({
+      model: modelo(i),
+      maxRetries: REINTENTOS,
       providerOptions: opcionesRapidas,
-      abortSignal: conLimite(15_000),
+      abortSignal: conLimite(20_000),
       temperature: 0.5,
       schema: esquemaSugerencias,
       system: [
@@ -124,7 +191,7 @@ export async function sugerirRespuestas(db: Db, c: ClienteResumen, usarIA: boole
         'Detecta si el cliente PROMETIÓ pagar en una fecha concreta. Convierte expresiones como "el viernes", "mañana" o "el 15" a AAAA-MM-DD tomando como referencia la fecha de hoy. Si solo dice que "va a ver" o no da fecha, hay=false.'
       ].join('\n'),
       prompt: `${contexto(db, c)} (${aISO(new Date())})\n\nConversación reciente:\n${historial(db, c.id, 8)}\n\nÚltimo mensaje del cliente: "${ultimoCliente.contenido}"`
-    });
+    }));
 
     let promesa: PromesaDetectada | null = null;
     const p = object.promesa;
@@ -136,9 +203,11 @@ export async function sugerirRespuestas(db: Db, c: ClienteResumen, usarIA: boole
       .map((s) => ({ etiqueta: s.etiqueta.trim().slice(0, 32), texto: s.texto.trim().slice(0, 400) }))
       .filter((s) => s.etiqueta && s.texto);
     if (sugerencias.length < 2) return reglas();
-    return { sugerencias, promesa, origen: 'ia' };
-  } catch (error) {
-    registrarErrorIA('Asistente/sugerir', error);
+    const resultado: ResultadoSugerencias = { sugerencias, promesa, origen: 'ia' };
+    cacheSugerencias.set(clave, resultado);
+    if (cacheSugerencias.size > 3000) cacheSugerencias.clear();
+    return resultado;
+  } catch {
     return reglas();
   }
 }
@@ -174,38 +243,42 @@ export interface ResumenDia {
   origen: Origen;
 }
 
-const cache = new Map<string, { firma: string; valor: ResumenDia }>();
+const cache = new Map<string, { firma: string; valor: ResumenDia; creado: number }>();
 
 /** pedirCuota se llama solo si hay que generar un resumen nuevo (el cacheado no consume cuota). */
 export async function resumenDelDia(userId: string, db: Db, pedirCuota: () => boolean): Promise<ResumenDia> {
   const datos = datosDelDia(db);
   const clientes = [...datos.esperan.slice(0, 2), ...datos.top.slice(0, 2)].filter((c, i, arr) => arr.findIndex((x) => x.id === c.id) === i).slice(0, 3);
   const base: ResumenDia = { texto: resumenPorReglas(datos), clientes, origen: 'plantilla' };
-  if (!iaDisponible) return base;
-
-  const firma = `${aISO(new Date())}|${JSON.stringify(datos)}`;
+  // Solo se reescribe cuando cambia lo importante (quién espera, promesas, los 3 más urgentes)
+  // y como máximo cada 10 minutos; no en cada envío o pago.
+  const firma = `${aISO(new Date())}|${datos.esperan.map((e) => e.id).join(',')}|${datos.promesasHoy.n}|${datos.promesasVencidas.n}|${datos.top.map((t) => t.id).join(',')}`;
   const previo = cache.get(userId);
   if (previo?.firma === firma) return previo.valor;
-  if (!pedirCuota()) return base;
+  // Cambió algo importante hace poco: el resumen por reglas ya está al día; la IA espera unos minutos.
+  if (previo && Date.now() - previo.creado < 10 * 60_000) return base;
+  if (!iaLista() || !pedirCuota()) return base;
 
   try {
-    const { text } = await generateText({
-      model: modelo(),
+    const { text } = await conIA('Asistente/resumen', (i) => generateText({
+      model: modelo(i),
+      maxRetries: REINTENTOS,
       providerOptions: opcionesRapidas,
-      abortSignal: conLimite(12_000),
+      abortSignal: conLimite(15_000),
       temperature: 0.4,
       system:
         'Eres el asistente de cobranza de una PyME mexicana. Escribe el resumen del día en 2 o 3 frases (máximo 320 caracteres): qué hacer primero y por qué. ' +
         'Orden: 1) clientes que esperan respuesta, 2) promesas vencidas o que vencen hoy, 3) el cobro más urgente. Usa los nombres de empresa y las cifras exactas de los datos; no inventes nada. Español de México, tono cercano, sin listas ni emojis.',
       prompt: `Hoy es ${hoyTexto()}. Datos (montos en pesos):\n${JSON.stringify(datos)}`
-    });
+    }));
     const texto = text.trim();
     const valor: ResumenDia = texto.length >= 30 && texto.length <= 600 ? { texto, clientes, origen: 'ia' } : base;
-    cache.set(userId, { firma, valor });
+    cache.set(userId, { firma, valor, creado: Date.now() });
     if (cache.size > 2000) cache.clear();
     return valor;
-  } catch (error) {
-    registrarErrorIA('Asistente/resumen', error);
+  } catch {
+    // Aunque falle, se recuerda el intento para no volver a esperar en cada visita.
+    cache.set(userId, { firma, valor: base, creado: Date.now() });
     return base;
   }
 }

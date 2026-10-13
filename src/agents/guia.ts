@@ -14,7 +14,7 @@ import { formatMXN, normalizar } from '../shared/format.js';
 import type { AccionGuia, DestinoGuia, EventoGuia, MensajeGuia } from '../shared/guia-types.js';
 import { describirHorario } from '../shared/politicas.js';
 import { motivoParaOmitir } from '../services/cobranza.js';
-import { conLimite, iaDisponible, modelo, opcionesRapidas, registrarErrorIA, turnosAlternados } from './modelo.js';
+import { conLimite, iaLista, modelo, opcionesRapidas, REINTENTOS, registrarErrorIA, turnosAlternados } from './modelo.js';
 
 type Emitir = (ev: EventoGuia) => void;
 
@@ -206,7 +206,7 @@ const NOMBRE_PANTALLA: Record<string, string> = {
 
 export async function guiar(db: Db, mensajes: MensajeGuia[], pantalla: string, emitir: Emitir): Promise<void> {
   const pregunta = [...mensajes].reverse().find((m) => m.rol === 'usuario')?.texto ?? '';
-  if (!iaDisponible) return respaldo(db, pregunta, emitir);
+  if (!iaLista()) return respaldo(db, pregunta, emitir);
 
   const ruta = pantalla.startsWith('/cartera/') ? 'la ficha de un cliente' : NOMBRE_PANTALLA[pantalla] ?? pantalla;
   let acciones = 0;
@@ -215,6 +215,7 @@ export async function guiar(db: Db, mensajes: MensajeGuia[], pantalla: string, e
   try {
     const resultado = streamText({
       model: modelo(),
+      maxRetries: REINTENTOS,
       providerOptions: opcionesRapidas,
       abortSignal: conLimite(30_000),
       temperature: 0.4,

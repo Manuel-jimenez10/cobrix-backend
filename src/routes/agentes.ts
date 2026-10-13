@@ -11,6 +11,7 @@ import { stream } from 'hono/streaming';
 import { z } from 'zod';
 import { redactarRecordatorio, resumenDelDia, sugerirRespuestas } from '../agents/asistente.js';
 import { guiar } from '../agents/guia.js';
+import { estadoIA } from '../agents/modelo.js';
 import { cargarDb, obtenerPerfil } from '../domain/db.js';
 import { resumir } from '../domain/logic.js';
 import { cuotaIA, limiteIA, type AppEnv } from '../middleware/auth.js';
@@ -53,8 +54,8 @@ agentes.post('/cobranza/preparar', async (c) => {
   if (perfil && !dentroDeHorario(perfil.politicas)) {
     throw new HTTPException(409, { message: `Fuera del horario de cobranza (${describirHorario(perfil.politicas)}). Puedes cambiarlo en Ajustes → Reglas de cobranza.` });
   }
-  // La IA redacta si hay cuota para toda la tanda; si no, se usan plantillas.
-  const usarIA = conIA && cuotaIA(userId, Math.min(clienteIds.length, 10));
+  // Toda la tanda se redacta en 1 llamada por cada 8 clientes; si no hay cuota, se usan plantillas.
+  const usarIA = conIA && cuotaIA(userId, Math.ceil(clienteIds.length / 8));
   return ndjson(c, async (enviar) => {
     const resultado = await prepararCobranza(userId, clienteIds, { tono: t, usarIA, onProgreso: (progreso) => enviar({ tipo: 'progreso', progreso }) });
     enviar({ tipo: 'resultado', resultado });
@@ -113,7 +114,7 @@ agentes.post('/clientes/:id/redactar', async (c) => {
 agentes.post('/clientes/:id/sugerencias', async (c) => {
   const userId = c.get('userId');
   const { db, resumen } = await clienteDe(userId, c.req.param('id'));
-  return c.json(await sugerirRespuestas(db, resumen, cuotaIA(userId)));
+  return c.json(await sugerirRespuestas(db, resumen, () => cuotaIA(userId)));
 });
 
 /** Resumen del día: a quién cobrar hoy y por qué (se cachea mientras los datos no cambien). */
@@ -122,6 +123,9 @@ agentes.get('/resumen-diario', async (c) => {
   const db = await cargarDb(userId);
   return c.json(await resumenDelDia(userId, db, () => cuotaIA(userId)));
 });
+
+/** Diagnóstico de la IA: llamadas, tasa de éxito, motivos de fallo y modelos en pausa (desde el último arranque). */
+agentes.get('/ia/estado', (c) => c.json(estadoIA()));
 
 /* ───────────── Guía ───────────── */
 

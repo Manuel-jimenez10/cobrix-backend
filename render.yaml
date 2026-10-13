@@ -23,6 +23,8 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-3.8-flash
+      - key: GEMINI_MODEL_RESPALDO
+        sync: false
       - key: AI_RATE_LIMIT_PER_10MIN
         value: "30"
       - key: WHATSAPP_TOKEN

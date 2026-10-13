@@ -16,7 +16,7 @@
  * de WhatsApp Cloud con canalPara(). El código del canal ya está en channels/whatsapp.ts.
  */
 import { priorizar } from '../agents/analista.js';
-import { redactarRecordatorio } from '../agents/asistente.js';
+import { redactarLote } from '../agents/asistente.js';
 import { canalSimulador, type CanalMensajeria } from '../channels/canal.js';
 import { crearCanalWhatsApp } from '../channels/whatsapp.js';
 import { env, whatsappConfigurado } from '../env.js';
@@ -69,9 +69,6 @@ export function motivoParaOmitir(db: Db, c: ClienteResumen): string | null {
   if (promesaVigente) return 'Tiene una promesa de pago vigente';
   return null;
 }
-
-/** Cuántos recordatorios redacta la IA en paralelo (la capa gratuita de Gemini tiene límite por minuto). */
-const EN_PARALELO = 3;
 
 export async function prepararCobranza(
   userId: string,
@@ -127,25 +124,24 @@ export async function prepararCobranza(
       : 'Nadie necesita recordatorio ahora'
   });
 
-  // 2. Asistente: redacta cada recordatorio (en paralelo, respetando el orden de prioridad).
+  // 2. Asistente: redacta toda la tanda en una sola llamada a la IA (respeta el orden de prioridad).
   const listos: string[] = [];
-  const borradores: (Borrador | undefined)[] = new Array(orden.length);
   const reportar = (fase: ProgresoCobranza['fase'], actualId: string | null) => opciones.onProgreso?.({ fase, orden, actualId, listos: [...listos] });
   reportar('redactando', orden[0]?.clienteId ?? null);
-
-  let siguiente = 0;
-  const trabajador = async () => {
-    while (siguiente < orden.length) {
-      const i = siguiente++;
-      const item = orden[i];
-      const c = priorizados.find((x) => x.id === item.clienteId)!;
-      const r = await redactarRecordatorio(db, c, item.tono, opciones.usarIA);
-      borradores[i] = { clienteId: c.id, empresa: c.empresa, nombre: c.nombre, telefono: destinoDe(db, c), deuda: c.deuda, tono: r.tono, texto: r.texto, origen: r.origen };
-      listos.push(c.id);
+  const redactados = await redactarLote(
+    db,
+    orden.map((item) => ({ c: priorizados.find((x) => x.id === item.clienteId)!, tono: item.tono })),
+    opciones.usarIA,
+    (id) => {
+      listos.push(id);
       reportar('redactando', orden.find((o) => !listos.includes(o.clienteId))?.clienteId ?? null);
     }
-  };
-  await Promise.all(Array.from({ length: Math.min(EN_PARALELO, orden.length) }, trabajador));
+  );
+  const borradores: (Borrador | undefined)[] = orden.map((item) => {
+    const c = priorizados.find((x) => x.id === item.clienteId)!;
+    const r = redactados.get(c.id);
+    return r && { clienteId: c.id, empresa: c.empresa, nombre: c.nombre, telefono: destinoDe(db, c), deuda: c.deuda, tono: r.tono, texto: r.texto, origen: r.origen };
+  });
 
   const lista = borradores.filter((b): b is Borrador => Boolean(b));
   if (lista.length) {
