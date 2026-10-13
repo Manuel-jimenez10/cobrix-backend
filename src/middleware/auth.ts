@@ -18,7 +18,8 @@ const inicializando = new Map<string, Promise<void>>();
 async function asegurarPerfil(user: { id: string; is_anonymous?: boolean; user_metadata?: Record<string, unknown> }) {
   if (await obtenerPerfil(user.id)) return;
   const meta = user.user_metadata ?? {};
-  const nombre = String(meta.nombre ?? '').trim() || (user.is_anonymous ? 'Invitado' : 'Administrador');
+  // Correo: nombre del registro. Google: full_name / name del perfil de Google.
+  const nombre = String(meta.nombre ?? meta.full_name ?? meta.name ?? '').trim() || (user.is_anonymous ? 'Invitado' : 'Administrador');
   const empresa = String(meta.empresa ?? '').trim() || 'Distribuidora del Valle';
   revisar(
     await supabase
