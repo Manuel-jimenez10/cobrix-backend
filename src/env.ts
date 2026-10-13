@@ -30,7 +30,7 @@ export const env = {
   geminiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? '',
   geminiModel: process.env.GEMINI_MODEL ?? 'gemini-3.8-flash',
   geminiThinking: (process.env.GEMINI_THINKING ?? 'low') as 'minimal' | 'low' | 'medium' | 'high',
-  aiRateLimit: Number(process.env.AI_RATE_LIMIT_PER_10MIN ?? 30),
+  aiRateLimit: Number(process.env.AI_RATE_LIMIT_PER_10MIN ?? 60),
 
   whatsapp: {
     token: process.env.WHATSAPP_TOKEN ?? '',

@@ -57,6 +57,22 @@ export const requiereUsuario: MiddlewareHandler<AppEnv> = async (c, next) => {
 
 /** Límite de llamadas a IA por usuario: protege la capa gratuita de Gemini de abusos en la demo pública. */
 const ventanas = new Map<string, number[]>();
+
+/**
+ * Versión "suave" del límite para el asistente de cobranza: en vez de fallar,
+ * responde false y la función usa sus reglas de respaldo (la app nunca se traba).
+ */
+export function cuotaIA(userId: string, costo = 1): boolean {
+  const ahora = Date.now();
+  const recientes = (ventanas.get(userId) ?? []).filter((t) => ahora - t < 10 * 60_000);
+  if (recientes.length + costo > env.aiRateLimit) {
+    ventanas.set(userId, recientes);
+    return false;
+  }
+  for (let i = 0; i < costo; i++) recientes.push(ahora);
+  ventanas.set(userId, recientes);
+  return true;
+}
 export const limiteIA: MiddlewareHandler<AppEnv> = async (c, next) => {
   const userId = c.get('userId');
   const ahora = Date.now();

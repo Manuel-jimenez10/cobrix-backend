@@ -14,39 +14,45 @@ import { formatMXN, normalizar } from '../shared/format.js';
 import type { AccionGuia, DestinoGuia, EventoGuia, MensajeGuia } from '../shared/guia-types.js';
 import { describirHorario } from '../shared/politicas.js';
 import { motivoParaOmitir } from '../services/cobranza.js';
-import { registroWhatsAppDisponible, whatsappConfigurado } from '../env.js';
 import { conLimite, iaDisponible, modelo, opcionesRapidas, registrarErrorIA, turnosAlternados } from './modelo.js';
 
 type Emitir = (ev: EventoGuia) => void;
 
 export const MANUAL = `
 # Qué es Cobrix
-App de gestión de cobranza por WhatsApp para PyMEs mexicanas. Cobrix ordena a quién cobrar primero y envía los recordatorios con plantillas aprobadas por Meta. La conversación con el cliente y los acuerdos de pago los lleva una persona del equipo (el usuario), porque en este negocio la relación es personal. La única IA es la Guía (tú), que explica cómo usar la app y señala dónde presionar.
+App de gestión de cobranza por WhatsApp para PyMEs mexicanas. Cobrix ordena a quién cobrar primero y prepara cada mensaje; una persona del equipo (el usuario) lo revisa y lo envía desde su propio WhatsApp con un toque (se abre WhatsApp con el chat del cliente y el texto ya escrito). La conversación y los acuerdos de pago los lleva esa persona, porque en este negocio la relación es personal. Nada se envía solo.
+
+# Qué hace la IA (siempre la revisa una persona)
+1. Redacta cada recordatorio personalizado según el tono que toca (amable, firme o aviso final), los días de atraso y el historial del cliente. Si la IA no está disponible se usa la plantilla base.
+2. Sugiere 3 respuestas cuando un cliente contesta (aparecen como botones arriba del cuadro de texto; al tocar una se llena el cuadro para revisarla).
+3. Detecta promesas de pago en lo que escribió el cliente ("te pago el viernes 5 mil") y muestra el aviso "prometió pagar…" con el botón "Registrar", que abre la promesa con monto y fecha ya llenos.
+4. Escribe el "Resumen de hoy" en Inicio: qué hacer primero y por qué.
+5. La Guía (tú) explica cómo usar la app y señala dónde presionar.
 
 # Flujo de trabajo (en este orden)
-1. Revisar la cartera: Inicio muestra cuánto te deben, lo vencido, lo recuperado y quién va primero.
-2. Contestar a quien te escribió: los clientes que respondieron aparecen en "Requieren tu atención" (Inicio) y con la etiqueta "Espera respuesta" (Cartera). Sus recordatorios se pausan hasta que les contestes. Abres al cliente, escribes en el cuadro de abajo con el modo "Tú (equipo)" y presionas enviar.
-3. Registrar la promesa: si acuerdan fecha, en la ficha del cliente presionas "Registrar promesa", eliges monto y fecha (atajos Hoy, Viernes, +7 días, +15 días) y presionas "Registrar promesa".
-4. Enviar recordatorios: el botón "Iniciar cobranza" (en Inicio; en el teléfono es el botón verde flotante) envía la plantilla que toca a cada cliente vencido: amable, luego firme y al final el aviso final. Se omite automáticamente a quien espera tu respuesta, tiene una promesa vigente, está en revisión o no tiene saldo. Antes de enviar ves la lista y confirmas con "Enviar recordatorios". También puedes enviar a un solo cliente desde su ficha con "Enviar recordatorio".
-5. Cobrar: en Promesas presionas "Marcar cumplida" cuando el cliente pague lo prometido; o en la ficha del cliente "Marcar pagada" si liquidó todo. Se suma a "Recuperado este mes".
+1. Revisar el día: Inicio muestra el "Resumen de hoy", cuánto te deben, lo vencido, lo recuperado y quién va primero.
+2. Contestar a quien te escribió: aparecen en "Requieren tu atención" (Inicio) y con la etiqueta "Espera respuesta" (Cartera). Sus recordatorios se pausan hasta que les contestes. Abres al cliente, con "Tú respondes" eliges una sugerencia de la IA o escribes, y presionas el botón verde: se abre tu WhatsApp con el mensaje y Cobrix lo registra en la conversación.
+3. Registrar lo que te contestó: como los clientes te responden en tu WhatsApp, copias su mensaje y lo pegas en la ficha del cliente con "Respuesta del cliente" (botón del cuadro de abajo). Así queda el historial, se marca "Espera respuesta" y la IA te sugiere qué contestar.
+4. Registrar la promesa: si acuerdan fecha, presionas "Registrar promesa" (o "Registrar" en el aviso de promesa detectada), eliges monto y fecha (atajos Hoy, Viernes, +7 días, +15 días) y presionas "Registrar promesa".
+5. Enviar recordatorios: el botón "Iniciar cobranza" (en Inicio; en el teléfono es el botón verde flotante) ordena a los clientes vencidos y omite a quien espera tu respuesta, tiene una promesa vigente, está en revisión o no tiene saldo. Presionas "Preparar mensajes", la IA redacta cada uno y luego los revisas uno por uno: puedes editarlo, "Reescribir con IA", "Saltar" o "Enviar por WhatsApp". También puedes enviar a un solo cliente desde su ficha con "Enviar recordatorio".
+6. Cobrar: en Promesas presionas "Cumplida" cuando el cliente pague lo prometido; o en la ficha del cliente "Marcar pagada" si liquidó todo. Se suma a "Recuperado este mes".
 
 # Cómo se decide la prioridad
 Score 0-100 por reglas: días de atraso (hasta 45 pts), monto respecto al mayor saldo (hasta 35), mensajes sin respuesta (hasta 15), promesas incumplidas (+8 c/u) y promesa vigente (-15). Alta ≥70, media ≥40. La razón está en la ficha del cliente (pestaña "Facturas y análisis" en el teléfono).
 
 # Pantallas
-- Inicio: totales, "Requieren tu atención", "A quién cobrar hoy", antigüedad de la cartera y "Actividad reciente".
+- Inicio: "Resumen de hoy", totales, "Requieren tu atención", "A quién cobrar hoy", antigüedad de la cartera y "Actividad reciente".
 - Cartera: búsqueda, filtros ("Esperan respuesta", vencidos, por vencer, con promesa, prioridad). En el teléfono puedes deslizar una tarjeta a la derecha para enviar recordatorio o a la izquierda para marcar pagada.
-- Ficha del cliente: botones "Enviar recordatorio", "Registrar promesa", "Marcar pagada"; conversación con indicador de la ventana de 24 h; selector "Tú (equipo)" / "Simular cliente" (el simulador permite escribir como si fueras el cliente para probar sin WhatsApp).
+- Ficha del cliente: botones "Enviar recordatorio", "Registrar promesa", "Marcar pagada"; la conversación; selector "Tú respondes" / "Respuesta del cliente"; sugerencias de la IA.
 - Promesas: vencidas, hoy, esta semana, más adelante y cumplidas.
-- Ajustes (ícono de engrane en el teléfono): cuenta, canal (Simulador o WhatsApp), "Reglas de cobranza" (horario de envíos y tono máximo), conexión con WhatsApp y "Tu WhatsApp para pruebas", plantillas, datos de ejemplo y "Recorrido guiado".
+- Ajustes (ícono de engrane en el teléfono): cuenta, canal (WhatsApp o Simulador), "Reglas de cobranza" (horario y tono máximo), sección "WhatsApp" (cómo se envía y "Tu WhatsApp para pruebas"), plantillas base, datos de ejemplo y "Recorrido guiado".
 - Guía: en computadora el botón "¿Necesitas ayuda?" (abajo a la derecha); en el teléfono la pestaña "Guía".
 
 # WhatsApp
-- Conectar el número de la empresa (Ajustes → "Conexión con WhatsApp" → "Conectar mi WhatsApp"): escribe el número (sin el código de país) y el nombre del negocio, elige recibir el código por SMS o llamada, escribe el código de 6 dígitos y presiona "Verificar". Cobrix crea solas las 3 plantillas y muestra si Meta ya las aprobó. Desde ese momento los recordatorios salen de ese número y las respuestas llegan a esta cuenta. Ese número no puede estar activo en la app de WhatsApp: si lo está, hay que borrar esa cuenta de WhatsApp antes; conviene un número dedicado a cobranza.
-- "Probar envío" manda el recordatorio amable de ejemplo a tu teléfono.
-- Meta solo permite texto libre dentro de las 24 h posteriores al último mensaje del cliente; fuera de esa ventana solo plantillas aprobadas. Por eso los recordatorios son plantillas y tus respuestas solo salen con la ventana abierta.
-- Modo demo: con el número de prueba de Meta, los mensajes se redirigen al número de Ajustes → "Tu WhatsApp para pruebas"; lo que respondas desde tu teléfono llega a la conversación del cliente.
-- Con el canal Simulador nada sale de la app.
+- Hoy no hay que conectar nada: los mensajes salen del WhatsApp de la persona (app de WhatsApp o WhatsApp Business en el teléfono, WhatsApp Web o de escritorio en la computadora). El cliente recibe el mensaje del número que ya conoce. Sin costo.
+- "Tu WhatsApp para pruebas" (Ajustes → WhatsApp): los clientes de ejemplo tienen números ficticios; si guardas tu número ahí, WhatsApp se abre con tu chat en lugar del del cliente para que veas lo que recibirían. Para cobrar a clientes reales se deja vacío.
+- Canal "Simulador": no se abre WhatsApp, los envíos solo se registran en Cobrix.
+- Próximamente: envío automático con la API oficial de WhatsApp (Meta). La app se envió a revisión de Meta el 12 de octubre de 2026; cuando la aprueben, en Ajustes se podrá conectar el número de la empresa con un código por SMS y Cobrix enviará los recordatorios solo y recibirá las respuestas en tiempo real. Todavía no está disponible.
 
 # Datos de ejemplo
 Cada cuenta tiene su propia cartera de ejemplo; se vacía o recarga en Ajustes. Nada se envía a clientes reales.
@@ -79,9 +85,9 @@ function estadoCuenta(db: Db) {
     montoPromesas: formatMXN(db.promesas.filter((p) => p.estado === 'pendiente').reduce((s, p) => s + p.monto, 0)),
     recordatoriosEnviados: db.mensajes.filter((m) => m.agente === 'redactor').length,
     canal: db.perfil.canal,
-    whatsappConfiguradoEnServidor: whatsappConfigurado || registroWhatsAppDisponible,
-    whatsappPropio: db.perfil.wa.estado === 'conectado' ? `conectado (${db.perfil.wa.numero})` : db.perfil.wa.estado === 'verificando' ? 'esperando el código de verificación' : 'sin conectar',
-    tieneTelefonoDePrueba: Boolean(db.perfil.telefonoPrueba),
+    envio: db.perfil.canal === 'simulador' ? 'simulador (no se abre WhatsApp)' : 'desde el WhatsApp del usuario (enlace con el mensaje listo)',
+    apiOficialMeta: 'próximamente (en revisión de Meta desde el 12 de octubre de 2026)',
+    telefonoDePruebas: db.perfil.telefonoPrueba ?? null,
     horarioDeEnvios: describirHorario(db.perfil.politicas),
     tonoMaximo: db.perfil.politicas.tonoMaximo
   };
@@ -102,7 +108,7 @@ const FAQS: Faq[] = [
       const n = resumenes(db).filter((r) => r.requiereAtencion).length;
       return (
         'Cuando un cliente contesta, su conversación queda marcada como "Requiere atención" y se pausan sus recordatorios. ' +
-        'Abre al cliente, escríbele desde el cuadro de abajo (modo "Tú (equipo)") y, si acuerdan una fecha, usa "Registrar promesa".' +
+        'Abre al cliente: con "Tú respondes" la IA te sugiere respuestas; elige una, revísala y presiona el botón verde para enviarla desde tu WhatsApp. Si acuerdan una fecha, usa "Registrar promesa". Cuando te conteste en WhatsApp, pega su mensaje con "Respuesta del cliente".' +
         (n ? ` Ahora mismo tienes ${n} cliente${n === 1 ? '' : 's'} esperando tu respuesta.` : '')
       );
     },
@@ -120,7 +126,7 @@ const FAQS: Faq[] = [
   {
     patron: /(recordatorio|enviar|mandar|cobrar|cobranza|plantilla)/,
     respuesta: () =>
-      'Toca "Iniciar cobranza": Cobrix ordena a los clientes por prioridad y les manda la plantilla que toca (amable, firme o final). Se omite a quien espera tu respuesta o ya prometió pagar. También puedes enviar a un solo cliente desde su ficha con "Enviar recordatorio".',
+      'Toca "Iniciar cobranza": Cobrix ordena a los clientes por prioridad y prepara el mensaje de cada uno con el tono que le toca (amable, firme o final). Luego los revisas uno por uno y presionas "Enviar por WhatsApp": se abre tu WhatsApp con el chat y el texto listos. Se omite a quien espera tu respuesta o ya prometió pagar.',
     acciones: () => [{ destino: 'iniciar_cobranza', etiqueta: 'Iniciar cobranza' }]
   },
   {
@@ -132,16 +138,22 @@ const FAQS: Faq[] = [
   {
     patron: /(whatsapp|meta|numero|telefono|24 ?h|ventana)/,
     respuesta: (db) =>
-      'Meta solo permite texto libre durante 24 h después del último mensaje del cliente; fuera de esa ventana solo plantillas aprobadas. ' +
-      (db.perfil.wa.estado === 'conectado'
-        ? `Tu número ${db.perfil.wa.numero} ya está conectado: los recordatorios salen desde ahí.`
-        : registroWhatsAppDisponible
-        ? 'Para enviar desde el número de tu empresa: Ajustes → "Conectar mi WhatsApp", escribe tu número y el nombre del negocio y confirma el código de 6 dígitos que te llega por SMS. Ese número no puede estar activo en la app de WhatsApp.'
-        : whatsappConfigurado
-        ? 'Para probarlo, en Ajustes activa el canal WhatsApp y escribe tu número en "Tu WhatsApp para pruebas": los mensajes te llegarán a ti.'
-        : 'Este servidor aún no tiene WhatsApp configurado, así que se usa el Simulador.') +
-      (db.perfil.canal === 'simulador' ? ' Ahora estás en modo Simulador.' : ''),
-    acciones: () => [{ destino: 'whatsapp', etiqueta: 'Conectar mi WhatsApp' }]
+      'Los mensajes salen desde tu propio WhatsApp: Cobrix lo abre con el chat del cliente y el texto listo, y tú solo presionas enviar. No hay nada que conectar. ' +
+      (db.perfil.telefonoPrueba
+        ? `Ahora tienes ${db.perfil.telefonoPrueba} como número de pruebas: WhatsApp se abre con ese chat en lugar del del cliente.`
+        : 'Para probar con los clientes de ejemplo (sus números son ficticios), pon tu número en Ajustes → "Tu WhatsApp para pruebas".') +
+      ' El envío automático con la API oficial de Meta llega pronto: la app está en revisión desde el 12 de octubre de 2026.' +
+      (db.perfil.canal === 'simulador' ? ' Ahora estás en modo Simulador: no se abre WhatsApp.' : ''),
+    acciones: () => [{ destino: 'whatsapp', etiqueta: 'Abrir ajustes de WhatsApp' }]
+  },
+  {
+    patron: /(\bia\b|inteligencia|sugerencia|redact|resumen del dia|asistente)/,
+    respuesta: () =>
+      'La IA te ayuda en cuatro cosas: redacta cada recordatorio según el tono, el atraso y el historial; cuando un cliente responde, te sugiere 3 respuestas; detecta si prometió pagar y te deja la promesa lista; y en Inicio te da el resumen del día. Tú siempre revisas y envías: nada sale solo.',
+    acciones: (db) => {
+      const c = resumenes(db).find((r) => r.requiereAtencion);
+      return c ? [{ destino: 'cliente', etiqueta: `Ver sugerencias para ${c.empresa}`.slice(0, 40), clienteId: c.id }] : [{ destino: 'iniciar_cobranza', etiqueta: 'Iniciar cobranza' }];
+    }
   },
   {
     patron: /(horario|tono|regla|politica|ajuste|configur)/,
@@ -167,7 +179,7 @@ const FAQS: Faq[] = [
   {
     patron: /(empez|inicio|como funciona|que hago|ayuda|tutorial|recorrido|guia)/,
     respuesta: () =>
-      'El flujo es: 1) contesta a quien te escribió, 2) registra la promesa de pago, 3) envía recordatorios a los vencidos y 4) marca como cumplida la promesa cuando te paguen. El recorrido guiado te ilumina cada botón paso a paso.',
+      'El flujo es: 1) revisa el resumen de hoy, 2) contesta a quien te escribió (la IA te sugiere qué decir), 3) registra la promesa de pago, 4) envía recordatorios desde tu WhatsApp y 5) marca como cumplida la promesa cuando te paguen. El recorrido guiado te ilumina cada botón paso a paso.',
     acciones: () => [{ destino: 'recorrido', etiqueta: 'Iniciar recorrido guiado' }]
   }
 ];
@@ -177,7 +189,7 @@ async function respaldo(db: Db, pregunta: string, emitir: Emitir) {
   const faq = FAQS.find((f) => f.patron.test(q));
   const texto = faq
     ? faq.respuesta(db)
-    : 'Puedo explicarte cómo enviar recordatorios, cómo atender a un cliente que respondió, cómo registrar promesas, cómo se calcula la prioridad o cómo conectar WhatsApp. ¿Qué te gustaría hacer?';
+    : 'Puedo explicarte cómo enviar recordatorios desde tu WhatsApp, cómo atender a un cliente que respondió, qué hace la IA, cómo registrar promesas o cómo se calcula la prioridad. ¿Qué te gustaría hacer?';
   for (const parte of texto.match(/\S+\s*/g) ?? []) {
     emitir({ tipo: 'delta', texto: parte });
     await new Promise((r) => setTimeout(r, 14));
@@ -219,7 +231,7 @@ export async function guiar(db: Db, mensajes: MensajeGuia[], pantalla: string, e
             'Úsalo siempre que el siguiente paso sea una acción en la app (máximo 2 por respuesta). Destinos: ' +
             'inicio; cartera; cliente (ilumina el cuadro para responder; requiere clienteId); atencion (ilumina al primer cliente que espera respuesta); ' +
             'registrar_promesa (ilumina el botón "Registrar promesa"; requiere clienteId); promesas (ilumina "Marcar cumplida"); iniciar_cobranza (ilumina "Iniciar cobranza"); ' +
-            'reglas (reglas de cobranza); whatsapp (canal y teléfono de pruebas); ajustes; recorrido (recorrido guiado paso a paso).',
+            'reglas (reglas de cobranza); whatsapp (cómo se envía y teléfono de pruebas); ajustes; recorrido (recorrido guiado paso a paso).',
           inputSchema: z.object({
             destino: z.enum(DESTINOS),
             etiqueta: z.string().max(40).describe('Texto corto del botón, p. ej. "Ir a Promesas"'),

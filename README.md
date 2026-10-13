@@ -1,13 +1,15 @@
 # Cobrix · Backend de agentes
 
-Cobrix es una app de cobranza por **WhatsApp** para PyMEs mexicanas. Automatiza lo repetitivo, que es decidir a quién cobrar primero y mandar los recordatorios con plantillas aprobadas por Meta, y deja la conversación con el cliente en manos de una persona del equipo, porque en este negocio la relación es personal. La única IA es la **Guía**: le enseña al usuario a usar la app, responde datos de su cartera y le ilumina en pantalla dónde presionar.
+Cobrix es una app de cobranza por **WhatsApp** para PyMEs mexicanas. Automatiza lo repetitivo (decidir a quién cobrar primero y redactar cada recordatorio) y deja el envío, la conversación y los acuerdos de pago en manos de una persona del equipo, que manda cada mensaje **desde su propio WhatsApp** con un toque (enlace `wa.me` con el texto ya escrito). En este negocio la relación es personal: nada sale solo.
 
 | Pieza | Qué hace | Cómo está construida |
 |---|---|---|
-| **Prioridad** (automático) | Decide a quién cobrar primero y explica por qué | Score 0-100 por reglas: atraso, monto, mensajes sin respuesta y promesas. Instantáneo y explicable |
-| **Recordatorios** (automático) | Envía el recordatorio que toca: amable → firme → final | Siempre plantilla aprobada por Meta, así que vale dentro y fuera de la ventana de 24 h |
-| **Tu equipo** (personas) | Contesta a los clientes y registra promesas de pago | Cuando un cliente responde queda en **"Requiere atención"** y sus recordatorios se pausan |
-| **Guía** (IA) | Enseña a usar Cobrix, responde sobre la cartera y señala dónde presionar | `streamText` con un manual de la app, el estado real de la cuenta (`estado_de_mi_cuenta`) y botones (`mostrar_boton`) que llevan a la pantalla e iluminan el botón exacto |
+| **Prioridad** (reglas) | Decide a quién cobrar primero y explica por qué | Score 0-100: atraso, monto, mensajes sin respuesta y promesas. Instantáneo y explicable |
+| **Asistente** (IA) | Redacta cada recordatorio, sugiere 3 respuestas, detecta promesas de pago y escribe el resumen del día | `generateText` / `generateObject` con salidas validadas (saldo exacto, fecha futura, monto ≤ saldo). Sin IA o sin cuota → reglas (`shared/asistente-reglas.ts`) |
+| **Tu equipo** (personas) | Revisa y envía desde su WhatsApp, pega las respuestas del cliente y registra promesas | Quien responde queda en **"Requiere atención"** y sus recordatorios se pausan |
+| **Guía** (IA) | Enseña a usar Cobrix y señala dónde presionar | `streamText` con un manual de la app y tools (`estado_de_mi_cuenta`, `mostrar_boton`) |
+
+> **WhatsApp oficial · próximamente.** La integración con la Cloud API de Meta (registro del número por SMS, plantillas, envío automático y webhook) ya está programada. La app se envió a revisión de Meta el **12 de octubre de 2026**; cuando la aprueben se activa sin cambiar el flujo.
 
 > Este repo es la **API de agentes** (Hono + Vercel AI SDK + Gemini + Supabase + WhatsApp Cloud API). La interfaz vive en el repo **cobrix-frontend** de la misma organización.
 
@@ -25,9 +27,9 @@ Cobrix es una app de cobranza por **WhatsApp** para PyMEs mexicanas. Automatiza 
  │ Backend de agentes (Render)      │──┘
  │ Hono + Vercel AI SDK + Gemini    │
  │ /dashboard /clientes …           │◄──── Webhook ──── WhatsApp Cloud API
- │ /cobranza/iniciar   (NDJSON)     │───── Graph API ──►  (Meta)
- │ /cobranza/responder (NDJSON)     │
- │ /guia/chat          (NDJSON)     │
+ │ /cobranza/preparar  (NDJSON)     │───── Graph API ──►  (Meta, próximamente)
+ │ /clientes/:id/sugerencias (IA)   │
+ │ /guia/chat          (NDJSON)     │       Navegador ──► wa.me (WhatsApp del usuario)
  └──────────────────────────────────┘
 ```
 
@@ -45,14 +47,15 @@ Cobrix es una app de cobranza por **WhatsApp** para PyMEs mexicanas. Automatiza 
 
 ## Flujo de cobranza
 
-1. **Iniciar cobranza** (`POST /cobranza/iniciar`, NDJSON): se recalcula la prioridad y se envía la plantilla que toca. Se omite a quien espera respuesta, tiene una promesa vigente, está en revisión o no tiene saldo. La respuesta lista los omitidos.
-2. **El cliente responde** (webhook de WhatsApp o simulador `POST /cobranza/responder`): se guarda el mensaje, se marca "requiere atención" y se avisa por Realtime. Ninguna IA le contesta.
-3. **El equipo contesta** (`POST /clientes/:id/responder`): texto libre por WhatsApp. Solo sale con la ventana de 24 h abierta; si está cerrada responde 409 con el motivo.
-4. **Promesa de pago** (`POST /clientes/:id/promesa`): monto y fecha. Se valida contra el saldo y pausa los recordatorios hasta esa fecha.
+1. **Preparar** (`POST /cobranza/preparar`, NDJSON): se recalcula la prioridad y la IA redacta el mensaje de cada cliente con el tono que toca. Se omite a quien espera respuesta, tiene una promesa vigente, está en revisión o no tiene saldo. **No envía nada**: devuelve borradores.
+2. **Enviar desde WhatsApp**: la persona revisa cada borrador, el frontend abre `https://wa.me/<teléfono>?text=<mensaje>` y registra el envío con `POST /clientes/:id/envio`.
+3. **El cliente responde**: la persona pega su mensaje (`POST /clientes/:id/respuesta`). Queda en "requiere atención", se avisa por Realtime y `POST /clientes/:id/sugerencias` propone 3 respuestas y detecta si prometió pagar. Ninguna IA le contesta sola.
+4. **Promesa de pago** (`POST /clientes/:id/promesa`): monto y fecha (prellenados si la IA la detectó). Se valida contra el saldo y pausa los recordatorios hasta esa fecha.
+5. **Resumen del día** (`GET /resumen-diario`): qué hacer primero y por qué; se cachea mientras la cartera no cambie.
 
 ## Reglas de cobranza (configurables por empresa)
 
-En **Ajustes → Reglas de cobranza** se define el **horario de envíos** (`/cobranza/iniciar` responde 409 fuera de horario) y el **tono máximo** de los recordatorios. Las reglas se aplican en el servidor.
+En **Ajustes → Reglas de cobranza** se define el **horario de envíos** (`/cobranza/preparar` responde 409 fuera de horario) y el **tono máximo** de los recordatorios. Las reglas se aplican en el servidor.
 
 ## Estructura
 
@@ -95,9 +98,9 @@ npm run dev               # http://localhost:8787/health
 
 > El plan gratuito de Render "duerme" el servidor tras 15 minutos sin uso, y la primera petición tarda unos 30 segundos. Para evitarlo, el workflow `.github/workflows/mantener-despierto.yml` hace ping a `/health` cada 5 minutos (el mínimo de GitHub Actions) de 7:00 a 1:00. Con el repo **público** los minutos de Actions son gratis; si es privado, este ping consume más que los 2,000 minutos gratuitos del mes. Solo tienes que crear el secreto **`RENDER_HEALTH_URL`** en GitHub (*Settings → Secrets and variables → Actions*) con `https://TU-BACKEND.onrender.com/health`. Si aun así se durmiera, la app lo indica y permite reintentar.
 
-## WhatsApp Cloud API
+## WhatsApp Cloud API · próximamente
 
-Sin estas variables, Cobrix usa el **simulador**: tú respondes como el cliente dentro de la app.
+Hoy no hace falta configurar nada: los mensajes salen por `wa.me`. Lo siguiente aplica cuando Meta apruebe la app (en revisión desde el 12 de octubre de 2026).
 
 ### Cada empresa conecta su propio número (desde la app)
 

@@ -1,16 +1,22 @@
 /**
  * Orquestación de los flujos de cobranza (los usan las rutas HTTP y el webhook).
  *
- *   iniciarCobranza:     Analista prioriza (reglas) → Redactor arma la plantilla → se envía por el canal.
- *   recibirRespuesta:    el cliente contesta → se guarda y se marca "requiere atención" para el equipo.
- *   responderComoEquipo: una persona del equipo contesta desde la app (texto libre dentro de la ventana de 24 h).
- *   registrarPromesa:    una persona registra el compromiso de pago que acordó con el cliente.
+ *   prepararCobranza:  Analista prioriza (reglas) → el asistente redacta cada recordatorio (IA o plantilla).
+ *                      No envía nada: devuelve borradores para que una persona los revise y los mande
+ *                      desde su WhatsApp (enlace wa.me con el mensaje ya escrito).
+ *   registrarEnvio:    la persona envió un mensaje desde su WhatsApp → queda en la conversación.
+ *   recibirRespuesta:  el cliente contestó (la persona pega su respuesta, o llega por el webhook de Meta)
+ *                      → se guarda y se marca "requiere atención".
+ *   registrarPromesa:  una persona registra el compromiso de pago que acordó con el cliente.
  *
  * La negociación la hace una persona: en cobranza de PyMEs la relación es personal.
  * Cada paso emite un evento en eventos_agente → Supabase Realtime → dashboard en vivo.
+ *
+ * Próximamente (cuando Meta apruebe la app): envío automático por la API oficial
+ * de WhatsApp Cloud con canalPara(). El código del canal ya está en channels/whatsapp.ts.
  */
 import { priorizar } from '../agents/analista.js';
-import { redactar } from '../agents/redactor.js';
+import { redactarRecordatorio } from '../agents/asistente.js';
 import { canalSimulador, type CanalMensajeria } from '../channels/canal.js';
 import { crearCanalWhatsApp } from '../channels/whatsapp.js';
 import { env, whatsappConfigurado } from '../env.js';
@@ -27,8 +33,8 @@ import {
 import { facturasAbiertas, resumir } from '../domain/logic.js';
 import { formatFecha, formatMXN } from '../shared/format.js';
 import { describirHorario, dentroDeHorario, limitarTono } from '../shared/politicas.js';
-import { estadoVentana, siguienteTono } from '../shared/reglas.js';
-import type { Cliente, ClienteResumen, Mensaje, ProgresoCobranza, PromesaPago, ResultadoCobranza, Tono } from '../shared/types.js';
+import { siguienteTono } from '../shared/reglas.js';
+import type { Borrador, Cliente, ClienteResumen, Mensaje, ProgresoCobranza, PromesaPago, ResultadoPreparacion, Tono } from '../shared/types.js';
 
 /** Errores de negocio: la ruta responde 409 y la UI muestra el mensaje tal cual. */
 export class ErrorDeNegocio extends Error {}
@@ -64,15 +70,18 @@ export function motivoParaOmitir(db: Db, c: ClienteResumen): string | null {
   return null;
 }
 
-export async function iniciarCobranza(
+/** Cuántos recordatorios redacta la IA en paralelo (la capa gratuita de Gemini tiene límite por minuto). */
+const EN_PARALELO = 3;
+
+export async function prepararCobranza(
   userId: string,
   clienteIds: string[],
-  opciones: { tono?: Tono; onProgreso?: (p: ProgresoCobranza) => void }
-): Promise<ResultadoCobranza> {
+  opciones: { tono?: Tono; usarIA: boolean; onProgreso?: (p: ProgresoCobranza) => void }
+): Promise<ResultadoPreparacion> {
   const db = await cargarDb(userId);
   const politicas = db.perfil.politicas;
   if (!dentroDeHorario(politicas)) {
-    throw new ErrorDeNegocio(`Fuera del horario de envíos configurado (${describirHorario(politicas)}). Cámbialo en Ajustes → Reglas de cobranza.`);
+    throw new ErrorDeNegocio(`Fuera del horario de cobranza configurado (${describirHorario(politicas)}). Cámbialo en Ajustes → Reglas de cobranza.`);
   }
   const log = bitacora(userId);
   const seleccion = clienteIds
@@ -80,7 +89,7 @@ export async function iniciarCobranza(
     .filter((c): c is Cliente => Boolean(c))
     .map((c) => resumir(db, c));
 
-  const omitidos: ResultadoCobranza['omitidos'] = [];
+  const omitidos: ResultadoPreparacion['omitidos'] = [];
   const candidatos = seleccion.filter((c) => {
     const motivo = motivoParaOmitir(db, c);
     if (motivo) omitidos.push({ clienteId: c.id, empresa: c.empresa, motivo });
@@ -88,7 +97,7 @@ export async function iniciarCobranza(
   });
 
   // 1. Analista: recalcula la prioridad por reglas (instantáneo) y ordena la cola.
-  opciones.onProgreso?.({ fase: 'analizando', orden: [], actualId: null, enviados: [] });
+  opciones.onProgreso?.({ fase: 'analizando', orden: [], actualId: null, listos: [] });
   const evA = log.emitir({
     agente: 'analista',
     clienteId: null,
@@ -118,59 +127,94 @@ export async function iniciarCobranza(
       : 'Nadie necesita recordatorio ahora'
   });
 
-  const enviados: string[] = [];
-  const mensajes: Mensaje[] = [];
-  const reportar = (fase: ProgresoCobranza['fase'], actualId: string | null) =>
-    opciones.onProgreso?.({ fase, orden, actualId, enviados: [...enviados] });
+  // 2. Asistente: redacta cada recordatorio (en paralelo, respetando el orden de prioridad).
+  const listos: string[] = [];
+  const borradores: (Borrador | undefined)[] = new Array(orden.length);
+  const reportar = (fase: ProgresoCobranza['fase'], actualId: string | null) => opciones.onProgreso?.({ fase, orden, actualId, listos: [...listos] });
+  reportar('redactando', orden[0]?.clienteId ?? null);
 
-  // 2. Redactor + envío, en orden de prioridad. Siempre plantilla aprobada: vale dentro y fuera de la ventana de 24 h.
-  for (const item of orden) {
-    const c = priorizados.find((x) => x.id === item.clienteId)!;
-    const borrador = redactar(db, c, item.tono);
-    reportar('enviando', c.id);
-    const evR = log.emitir({ agente: 'redactor', clienteId: c.id, accion: `Enviando recordatorio a ${c.empresa}`, detalle: `Plantilla ${item.tono}`, estado: 'en_progreso' });
-
-    const canal = canalPara(db, c);
-    const envio = await canal.enviarPlantilla({ telefono: destinoDe(db, c), tono: item.tono, variables: borrador.variables });
-    if (!envio.ok) {
-      log.actualizar(evR, { estado: 'error', accion: `No se pudo enviar el recordatorio a ${c.empresa}`, detalle: envio.error ?? 'error desconocido' });
-      continue;
+  let siguiente = 0;
+  const trabajador = async () => {
+    while (siguiente < orden.length) {
+      const i = siguiente++;
+      const item = orden[i];
+      const c = priorizados.find((x) => x.id === item.clienteId)!;
+      const r = await redactarRecordatorio(db, c, item.tono, opciones.usarIA);
+      borradores[i] = { clienteId: c.id, empresa: c.empresa, nombre: c.nombre, telefono: destinoDe(db, c), deuda: c.deuda, tono: r.tono, texto: r.texto, origen: r.origen };
+      listos.push(c.id);
+      reportar('redactando', orden.find((o) => !listos.includes(o.clienteId))?.clienteId ?? null);
     }
+  };
+  await Promise.all(Array.from({ length: Math.min(EN_PARALELO, orden.length) }, trabajador));
 
-    const mensaje = await insertarMensaje(userId, {
-      clienteId: c.id,
-      rol: 'agente',
+  const lista = borradores.filter((b): b is Borrador => Boolean(b));
+  if (lista.length) {
+    const conIA = lista.filter((b) => b.origen === 'ia').length;
+    await emitirEvento(userId, {
       agente: 'redactor',
-      contenido: borrador.contenido,
-      tono: item.tono,
-      esPlantilla: true,
-      canal: canal.nombre,
-      waMessageId: envio.messageId ?? null
-    });
-    db.mensajes.push(mensaje);
-    mensajes.push(mensaje);
-    enviados.push(c.id);
-    log.actualizar(evR, {
-      estado: 'completado',
-      accion: `Recordatorio enviado a ${c.empresa}`,
-      detalle: `Plantilla ${item.tono} · ${canal.nombre === 'whatsapp' ? 'WhatsApp' : 'simulador'}`
+      clienteId: null,
+      accion: `${lista.length} ${lista.length === 1 ? 'recordatorio listo' : 'recordatorios listos'} para enviar`,
+      detalle: conIA ? `${conIA} redactado${conIA === 1 ? '' : 's'} con IA · se envían desde tu WhatsApp` : 'Con plantilla · se envían desde tu WhatsApp',
+      estado: 'completado'
     });
   }
-
   reportar('listo', null);
   await log.listo();
-  return { enviados: enviados.length, mensajes, omitidos };
+  return { borradores: lista, omitidos };
 }
 
 /**
- * El cliente contestó (por WhatsApp o desde el simulador). No responde ninguna IA:
- * se guarda, se pausan sus recordatorios y el equipo recibe el aviso en tiempo real.
+ * La persona envió un mensaje desde su WhatsApp (enlace wa.me). Se guarda en la conversación:
+ * con tono = recordatorio de cobranza; sin tono = respuesta del equipo.
+ */
+export async function registrarEnvio(
+  userId: string,
+  clienteId: string,
+  datos: { texto: string; tono: Tono | null; origen: 'ia' | 'plantilla' | 'manual' }
+): Promise<Mensaje> {
+  const db = await cargarDb(userId);
+  const cliente = db.clientes.find((c) => c.id === clienteId);
+  if (!cliente) throw new ErrorDeNegocio('Cliente no encontrado');
+  const esRecordatorio = Boolean(datos.tono);
+  const mensaje = await insertarMensaje(userId, {
+    clienteId,
+    rol: 'agente',
+    agente: esRecordatorio ? 'redactor' : null, // null = lo escribió una persona del equipo
+    contenido: datos.texto,
+    tono: datos.tono,
+    esPlantilla: datos.origen === 'plantilla',
+    canal: db.perfil.canal === 'simulador' ? 'simulador' : 'whatsapp',
+    waMessageId: null
+  });
+  const vista = datos.texto.length > 60 ? `${datos.texto.slice(0, 57)}…` : datos.texto;
+  await emitirEvento(userId, esRecordatorio
+    ? {
+        agente: 'redactor',
+        clienteId,
+        accion: `Recordatorio enviado a ${cliente.empresa}`,
+        detalle: `Tono ${datos.tono}${datos.origen === 'ia' ? ' · redactado con IA' : ''} · desde tu WhatsApp`,
+        estado: 'completado'
+      }
+    : {
+        agente: 'negociador', // 'negociador' = acciones del equipo humano
+        clienteId,
+        accion: `Respondiste a ${cliente.empresa}`,
+        detalle: vista,
+        estado: 'completado'
+      });
+  return mensaje;
+}
+
+/**
+ * El cliente contestó: la persona pega lo que le escribió por WhatsApp (o, con la API
+ * oficial, llega por el webhook). No responde ninguna IA: se guarda, se pausan sus
+ * recordatorios y el equipo recibe el aviso en tiempo real.
  */
 export async function recibirRespuesta(
   userId: string,
   clienteId: string,
   texto: string,
-  origen: 'simulador' | 'whatsapp',
+  origen: 'manual' | 'simulador' | 'whatsapp',
   waMessageId?: string
 ): Promise<Mensaje> {
   const db = await cargarDb(userId);
@@ -184,7 +228,7 @@ export async function recibirRespuesta(
     contenido: texto,
     tono: null,
     esPlantilla: false,
-    canal: origen,
+    canal: origen === 'simulador' ? 'simulador' : 'whatsapp',
     waMessageId: waMessageId ?? null
   });
   const vista = texto.length > 60 ? `${texto.slice(0, 57)}…` : texto;
@@ -193,42 +237,6 @@ export async function recibirRespuesta(
     clienteId,
     accion: `${cliente.empresa} te escribió`,
     detalle: `“${vista}” · espera tu respuesta`,
-    estado: 'completado'
-  });
-  return mensaje;
-}
-
-/** Una persona del equipo le contesta al cliente desde la app. */
-export async function responderComoEquipo(userId: string, clienteId: string, texto: string): Promise<Mensaje> {
-  const db = await cargarDb(userId);
-  const cliente = db.clientes.find((c) => c.id === clienteId);
-  if (!cliente) throw new ErrorDeNegocio('Cliente no encontrado');
-
-  const canal = canalPara(db, cliente);
-  const ventana = estadoVentana(db.mensajes.filter((m) => m.clienteId === clienteId));
-  if (canal.nombre === 'whatsapp' && !ventana.abierta) {
-    throw new ErrorDeNegocio(
-      'La ventana de 24 h de WhatsApp está cerrada: Meta solo permite plantillas. Envía un recordatorio o escríbele desde tu WhatsApp Business.'
-    );
-  }
-  const envio = await canal.enviarTexto(destinoDe(db, cliente), texto);
-  if (!envio.ok) throw new ErrorDeNegocio(`WhatsApp rechazó el mensaje: ${envio.error ?? 'error desconocido'}`);
-
-  const mensaje = await insertarMensaje(userId, {
-    clienteId,
-    rol: 'agente',
-    agente: null, // null = lo escribió una persona del equipo
-    contenido: texto,
-    tono: null,
-    esPlantilla: false,
-    canal: canal.nombre,
-    waMessageId: envio.messageId ?? null
-  });
-  await emitirEvento(userId, {
-    agente: 'negociador', // 'negociador' = acciones del equipo humano
-    clienteId,
-    accion: `Respondiste a ${cliente.empresa}`,
-    detalle: texto.length > 60 ? `${texto.slice(0, 57)}…` : texto,
     estado: 'completado'
   });
   return mensaje;
