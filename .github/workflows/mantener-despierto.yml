@@ -1,0 +1,40 @@
+# Mantiene despierto el backend de agentes en Render (plan gratuito).
+# Render duerme el servicio tras 15 min sin tráfico; este ping cada 5 min lo evita.
+#
+# Configuración (una vez):
+#   GitHub → tu repo → Settings → Secrets and variables → Actions → New repository secret
+#   Nombre: RENDER_HEALTH_URL   Valor: https://TU-BACKEND.onrender.com/health
+#
+# Nota: GitHub puede retrasar los cron unos minutos en horas pico y los pausa
+# si el repositorio pasa 60 días sin actividad (se reactivan con un commit).
+name: Mantener despierto el backend
+
+on:
+  schedule:
+    # Cada 5 minutos (el mínimo que permite GitHub), de 7:00 a 00:59 hora de Caracas / 5:00 a 22:59 de CDMX (11:00–04:59 UTC).
+    # Así se ahorran horas del plan gratuito de Render en la madrugada.
+    - cron: '*/5 11-23,0-4 * * *'
+  workflow_dispatch: # permite lanzarlo a mano desde la pestaña Actions
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping a /health
+        env:
+          URL: ${{ secrets.RENDER_HEALTH_URL }}
+        run: |
+          if [ -z "$URL" ]; then
+            echo "::warning::Falta el secreto RENDER_HEALTH_URL; no hay nada que despertar."
+            exit 0
+          fi
+          # Si estaba dormido, el primer intento puede tardar ~30-50 s en arrancar.
+          for intento in 1 2 3; do
+            codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$URL" || echo 000)
+            echo "Intento $intento: HTTP $codigo"
+            [ "$codigo" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "::error::El backend no respondió 200 en 3 intentos"
+          exit 1

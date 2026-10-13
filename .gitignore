@@ -1,0 +1,8 @@
+node_modules
+dist
+*.log
+
+# Variables de entorno (nunca subir)
+.env
+.env.*
+!.env.example
