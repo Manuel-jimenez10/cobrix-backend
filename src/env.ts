@@ -34,7 +34,10 @@ export const env = {
 
   whatsapp: {
     token: process.env.WHATSAPP_TOKEN ?? '',
+    /** Número compartido de demo (opcional si cada empresa conecta el suyo). */
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? '',
+    /** Cuenta de WhatsApp Business de Cobrix: ahí se registran los números de las empresas. */
+    wabaId: process.env.WHATSAPP_WABA_ID ?? '',
     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? '',
     appSecret: process.env.WHATSAPP_APP_SECRET ?? '',
     graphVersion: process.env.WHATSAPP_GRAPH_VERSION ?? 'v21.0',
@@ -48,4 +51,7 @@ export const env = {
 };
 
 export const iaDisponible = Boolean(env.geminiKey);
+/** Hay un número compartido de demo configurado en el servidor. */
 export const whatsappConfigurado = Boolean(env.whatsapp.token && env.whatsapp.phoneNumberId);
+/** Las empresas pueden conectar su propio número (registro por Graph API). */
+export const registroWhatsAppDisponible = Boolean(env.whatsapp.token && env.whatsapp.wabaId);

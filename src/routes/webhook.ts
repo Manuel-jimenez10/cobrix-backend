@@ -31,27 +31,46 @@ interface MensajeEntrante {
 
 const procesados = new Set<string>();
 
-/**
- * ¿De qué usuario y cliente es este número?
- * 1) Modo demo: el número coincide con el "teléfono de prueba" de un administrador →
- *    se asigna al cliente al que ese administrador le escribió por WhatsApp más recientemente.
- * 2) Caso real: el número coincide con el teléfono de un cliente.
- */
-async function ubicarCliente(digitos: string): Promise<{ userId: string; clienteId: string } | null> {
-  const variantes = variantesMx(digitos);
-
-  const { data: perfiles } = await supabase.from('perfiles').select('user_id').in('telefono_prueba_digitos', variantes);
-  for (const p of perfiles ?? []) {
+/** Cliente de una cuenta cuyo teléfono coincide (o, en demo, el último al que se le escribió). */
+async function clienteDeCuenta(userId: string, variantes: string[], telefonoPrueba: string | null): Promise<string | null> {
+  const { data: clientes } = await supabase.from('clientes').select('id').eq('user_id', userId).in('telefono_digitos', variantes).limit(1);
+  if (clientes?.[0]) return clientes[0].id;
+  // Demo: el administrador responde desde su "teléfono de prueba" → el último cliente al que se le escribió por WhatsApp.
+  if (telefonoPrueba && variantes.some((v) => variantesMx(soloDigitos(telefonoPrueba)).includes(v))) {
     const { data: ultimo } = await supabase
       .from('mensajes')
-      .select('cliente_id, fecha')
-      .eq('user_id', p.user_id)
+      .select('cliente_id')
+      .eq('user_id', userId)
       .eq('rol', 'agente')
       .eq('canal', 'whatsapp')
       .order('fecha', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (ultimo) return { userId: p.user_id, clienteId: ultimo.cliente_id };
+    return ultimo?.cliente_id ?? null;
+  }
+  return null;
+}
+
+/**
+ * ¿De qué cuenta y cliente es este mensaje?
+ * 1) El número de Cobrix que lo recibió pertenece a una empresa (WhatsApp propio) → se busca en su cartera.
+ * 2) Número compartido de demo → se busca por el teléfono de prueba del administrador o por el teléfono del cliente.
+ */
+async function ubicarCliente(digitos: string, phoneNumberId: string | undefined): Promise<{ userId: string; clienteId: string } | null> {
+  const variantes = variantesMx(digitos);
+
+  if (phoneNumberId) {
+    const { data: dueño } = await supabase.from('perfiles').select('user_id, telefono_prueba').eq('wa_phone_number_id', phoneNumberId).maybeSingle();
+    if (dueño) {
+      const clienteId = await clienteDeCuenta(dueño.user_id, variantes, dueño.telefono_prueba);
+      return clienteId ? { userId: dueño.user_id, clienteId } : null;
+    }
+  }
+
+  const { data: perfiles } = await supabase.from('perfiles').select('user_id, telefono_prueba').in('telefono_prueba_digitos', variantes);
+  for (const p of perfiles ?? []) {
+    const clienteId = await clienteDeCuenta(p.user_id, variantes, p.telefono_prueba);
+    if (clienteId) return { userId: p.user_id, clienteId };
   }
 
   const { data: clientes } = await supabase.from('clientes').select('id, user_id').in('telefono_digitos', variantes);
@@ -69,7 +88,7 @@ async function ubicarCliente(digitos: string): Promise<{ userId: string; cliente
   return ultimo ? { userId: ultimo.user_id, clienteId: ultimo.cliente_id } : { userId: clientes[0].user_id, clienteId: clientes[0].id };
 }
 
-async function atender(m: MensajeEntrante) {
+async function atender(m: MensajeEntrante, phoneNumberId?: string) {
   if (procesados.has(m.id)) return; // Meta puede reenviar el mismo evento
   procesados.add(m.id);
   if (procesados.size > 2000) procesados.clear();
@@ -77,7 +96,7 @@ async function atender(m: MensajeEntrante) {
   const texto = m.text?.body ?? m.button?.text ?? m.interactive?.button_reply?.title ?? m.interactive?.list_reply?.title;
   if (!texto) return; // audios, imágenes, etc. no se procesan en la demo
 
-  const destino = await ubicarCliente(soloDigitos(m.from));
+  const destino = await ubicarCliente(soloDigitos(m.from), phoneNumberId);
   if (!destino) {
     console.warn(`[webhook] Mensaje de un número desconocido (${m.from.slice(0, 5)}…), se ignora.`);
     return;
@@ -89,15 +108,17 @@ webhook.post('/', async (c) => {
   const crudo = await c.req.text();
   if (!firmaValida(crudo, c.req.header('x-hub-signature-256'))) return c.text('Firma inválida', 401);
 
-  let cuerpo: { entry?: { changes?: { value?: { messages?: MensajeEntrante[] } }[] }[] };
+  let cuerpo: { entry?: { changes?: { value?: { metadata?: { phone_number_id?: string }; messages?: MensajeEntrante[] } }[] }[] };
   try {
     cuerpo = JSON.parse(crudo);
   } catch {
     return c.text('JSON inválido', 400);
   }
-  const mensajes = cuerpo.entry?.flatMap((e) => e.changes?.flatMap((ch) => ch.value?.messages ?? []) ?? []) ?? [];
-  for (const m of mensajes) {
-    void atender(m).catch((error) => console.error('[webhook] Error al procesar mensaje:', error));
+  for (const cambio of cuerpo.entry?.flatMap((e) => e.changes ?? []) ?? []) {
+    const numeroCobrix = cambio.value?.metadata?.phone_number_id;
+    for (const m of cambio.value?.messages ?? []) {
+      void atender(m, numeroCobrix).catch((error) => console.error('[webhook] Error al procesar mensaje:', error));
+    }
   }
   return c.text('OK');
 });

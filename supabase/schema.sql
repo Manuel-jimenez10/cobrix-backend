@@ -29,6 +29,13 @@ create table if not exists public.perfiles (
   es_anonimo      boolean not null default false,
   -- Políticas de negociación (ver server/src/shared/politicas.ts). {} = valores por defecto.
   politicas       jsonb not null default '{}'::jsonb,
+  -- WhatsApp propio de la empresa (ver 003_whatsapp_empresa.sql)
+  wa_phone_number_id text,
+  wa_numero       text,
+  wa_nombre       text,
+  wa_estado       text check (wa_estado in ('verificando', 'conectado')),
+  wa_pin          text,
+  wa_conectado_en timestamptz,
   created_at      timestamptz not null default now()
 );
 
@@ -133,6 +140,7 @@ create table if not exists public.pagos (
 -- ---------------------------------------------------------------------
 -- Índices
 -- ---------------------------------------------------------------------
+create unique index if not exists perfiles_wa_phone_idx on public.perfiles (wa_phone_number_id) where wa_phone_number_id is not null;
 create index if not exists clientes_user_idx        on public.clientes (user_id);
 create index if not exists clientes_tel_idx         on public.clientes (telefono_digitos);
 create index if not exists facturas_user_idx        on public.facturas (user_id);

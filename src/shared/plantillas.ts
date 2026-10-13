@@ -13,14 +13,14 @@ export const plantillas: Plantilla[] = [
   nombre: 'Seguimiento firme',
   descripcion: 'Segundo intento. Directo, menciona el atraso y pide una fecha.',
   contenido:
-  '{{nombre}}, seguimos sin registrar el pago de la factura {{folio}} por {{monto}}, con {{dias}} días de atraso. Necesitamos acordar una fecha de pago esta semana para evitar recargos. Responde este mensaje y lo resolvemos.'
+  'Hola {{nombre}}, seguimos sin registrar el pago de la factura {{folio}} por {{monto}}, con {{dias}} días de atraso. Necesitamos acordar una fecha de pago esta semana para evitar recargos. Responde este mensaje y lo resolvemos.'
 },
 {
   tono: 'final',
   nombre: 'Aviso final',
   descripcion: 'Último intento antes de pasar el caso a jurídico.',
   contenido:
-  '{{nombre}}, este es nuestro último aviso sobre la factura {{folio}} por {{monto}}. Si no recibimos respuesta en 48 horas, el adeudo se turnará a nuestro despacho jurídico. Aún podemos acordar un plan de pagos si nos escribes hoy.'
+  'Hola {{nombre}}, este es nuestro último aviso sobre la factura {{folio}} por {{monto}}. Si no recibimos respuesta en 48 horas, el adeudo se turnará a nuestro despacho jurídico. Aún podemos acordar un plan de pagos si nos escribes hoy.'
 }];
 
 

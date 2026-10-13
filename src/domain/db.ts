@@ -28,6 +28,8 @@ export interface Perfil {
   telefonoPrueba: string | null;
   esAnonimo: boolean;
   politicas: Politicas;
+  /** WhatsApp propio de la empresa. */
+  wa: { phoneNumberId: string | null; numero: string | null; nombre: string | null; estado: 'verificando' | 'conectado' | null };
 }
 
 export interface Pago {
@@ -62,7 +64,8 @@ export const aPerfil = (r: Fila): Perfil => ({
   canal: r.canal,
   telefonoPrueba: r.telefono_prueba ?? null,
   esAnonimo: Boolean(r.es_anonimo),
-  politicas: conDefaults(r.politicas)
+  politicas: conDefaults(r.politicas),
+  wa: { phoneNumberId: r.wa_phone_number_id ?? null, numero: r.wa_numero ?? null, nombre: r.wa_nombre ?? null, estado: r.wa_estado ?? null }
 });
 
 export const aCliente = (r: Fila): Cliente => ({
@@ -283,7 +286,19 @@ export async function insertarPago(userId: string, clienteId: string | null, mon
 
 export async function actualizarPerfil(
   userId: string,
-  cambios: Partial<{ canal: Canal; telefono_prueba: string | null; nombre: string; empresa: string; politicas: Politicas }>
+  cambios: Partial<{
+    canal: Canal;
+    telefono_prueba: string | null;
+    nombre: string;
+    empresa: string;
+    politicas: Politicas;
+    wa_phone_number_id: string | null;
+    wa_numero: string | null;
+    wa_nombre: string | null;
+    wa_estado: 'verificando' | 'conectado' | null;
+    wa_pin: string | null;
+    wa_conectado_en: string | null;
+  }>
 ): Promise<void> {
   revisar(await supabase.from('perfiles').update(cambios).eq('user_id', userId), 'actualizar perfil');
 }

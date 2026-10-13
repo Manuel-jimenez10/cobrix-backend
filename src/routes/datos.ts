@@ -14,6 +14,7 @@ import {
 import { construirDashboard, facturasAbiertas, porFecha, resumenes, resumir, suma } from '../domain/logic.js';
 import { sembrarDemo, vaciarDatos } from '../domain/seed.js';
 import { env, iaDisponible, whatsappConfigurado } from '../env.js';
+import { asegurarPlantillas, conectarNumero, desconectar, enviarPrueba, estadoWhatsApp, reenviarCodigo, verificarCodigo } from '../services/whatsapp-registro.js';
 import { revisar, supabase } from '../lib/supabase.js';
 import type { AppEnv } from '../middleware/auth.js';
 import { formatMXN, normalizar } from '../shared/format.js';
@@ -133,10 +134,12 @@ datos.get('/ajustes', async (c) => {
     telefonoPrueba: perfil?.telefonoPrueba ?? null,
     iaActiva: iaDisponible,
     whatsapp: {
-      conectado: whatsappConfigurado,
-      numero: whatsappConfigurado ? (await verificarConexion()).numero ?? 'Número de prueba de Meta' : 'No configurado',
+      conectado: perfil?.wa.estado === 'conectado' || whatsappConfigurado,
+      numero:
+        perfil?.wa.estado === 'conectado' ? perfil.wa.numero ?? 'Tu número' :
+        whatsappConfigurado ? (await verificarConexion()).numero ?? 'Número de prueba de Meta' : 'No configurado',
       proveedor: 'WhatsApp Business Platform · Cloud API',
-      plantillasAprobadas: whatsappConfigurado ? plantillas.length : 0,
+      plantillasAprobadas: perfil?.wa.estado === 'conectado' || whatsappConfigurado ? plantillas.length : 0,
       ultimaSincronizacion: new Date().toISOString()
     }
   };
@@ -208,4 +211,56 @@ datos.put('/politicas', async (c) => {
   const politicas = esquemaPoliticas.parse(await c.req.json());
   await actualizarPerfil(c.get('userId'), { politicas });
   return c.json(politicas);
+});
+
+/* ───────────── WhatsApp propio de la empresa ───────────── */
+
+/** URL pública del webhook (Render pasa el protocolo real en x-forwarded-proto). */
+const urlWebhook = (c: { req: { url: string; header: (n: string) => string | undefined } }) => {
+  const url = new URL(c.req.url);
+  const proto = c.req.header('x-forwarded-proto') ?? url.protocol.replace(':', '');
+  return `${proto}://${c.req.header('x-forwarded-host') ?? url.host}/webhooks/whatsapp`;
+};
+
+datos.get('/whatsapp/estado', async (c) => c.json({ ...(await estadoWhatsApp(c.get('userId'))), webhookUrl: urlWebhook(c) }));
+
+const metodo = z.enum(['SMS', 'VOICE']).default('SMS');
+
+datos.post('/whatsapp/conectar', async (c) => {
+  const datosNumero = z
+    .object({
+      cc: z.string().regex(/^\+?\d{1,3}$/, 'Código de país inválido'),
+      numero: z.string().min(7).max(20),
+      nombre: z.string().trim().min(3, 'Escribe el nombre de tu negocio').max(60),
+      metodo
+    })
+    .parse(await c.req.json());
+  return c.json({ ...(await conectarNumero(c.get('userId'), datosNumero)), webhookUrl: urlWebhook(c) });
+});
+
+datos.post('/whatsapp/reenviar', async (c) => {
+  const { metodo: m } = z.object({ metodo }).parse(await c.req.json().catch(() => ({})));
+  await reenviarCodigo(c.get('userId'), m);
+  return c.json({ ok: true });
+});
+
+datos.post('/whatsapp/verificar', async (c) => {
+  const { codigo } = z.object({ codigo: z.string().regex(/^\d{6}$/, 'El código tiene 6 dígitos') }).parse(await c.req.json());
+  return c.json({ ...(await verificarCodigo(c.get('userId'), codigo)), webhookUrl: urlWebhook(c) });
+});
+
+datos.post('/whatsapp/desconectar', async (c) => {
+  await desconectar(c.get('userId'));
+  return c.json({ ok: true });
+});
+
+datos.post('/whatsapp/plantillas', async (c) => {
+  await asegurarPlantillas();
+  return c.json({ ...(await estadoWhatsApp(c.get('userId'))), webhookUrl: urlWebhook(c) });
+});
+
+datos.post('/whatsapp/prueba', async (c) => {
+  const { telefono } = z.object({ telefono: z.string().regex(/^\+?[\d\s()-]{8,20}$/, 'Teléfono inválido') }).parse(await c.req.json());
+  await enviarPrueba(c.get('userId'), telefono);
+  return c.json({ ok: true });
 });

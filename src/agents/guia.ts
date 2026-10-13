@@ -14,7 +14,7 @@ import { formatMXN, normalizar } from '../shared/format.js';
 import type { AccionGuia, DestinoGuia, EventoGuia, MensajeGuia } from '../shared/guia-types.js';
 import { describirHorario } from '../shared/politicas.js';
 import { motivoParaOmitir } from '../services/cobranza.js';
-import { whatsappConfigurado } from '../env.js';
+import { registroWhatsAppDisponible, whatsappConfigurado } from '../env.js';
 import { conLimite, iaDisponible, modelo, opcionesRapidas, registrarErrorIA, turnosAlternados } from './modelo.js';
 
 type Emitir = (ev: EventoGuia) => void;
@@ -42,6 +42,8 @@ Score 0-100 por reglas: días de atraso (hasta 45 pts), monto respecto al mayor 
 - Guía: en computadora el botón "¿Necesitas ayuda?" (abajo a la derecha); en el teléfono la pestaña "Guía".
 
 # WhatsApp
+- Conectar el número de la empresa (Ajustes → "Conexión con WhatsApp" → "Conectar mi WhatsApp"): escribe el número (sin el código de país) y el nombre del negocio, elige recibir el código por SMS o llamada, escribe el código de 6 dígitos y presiona "Verificar". Cobrix crea solas las 3 plantillas y muestra si Meta ya las aprobó. Desde ese momento los recordatorios salen de ese número y las respuestas llegan a esta cuenta. Ese número no puede estar activo en la app de WhatsApp: si lo está, hay que borrar esa cuenta de WhatsApp antes; conviene un número dedicado a cobranza.
+- "Probar envío" manda el recordatorio amable de ejemplo a tu teléfono.
 - Meta solo permite texto libre dentro de las 24 h posteriores al último mensaje del cliente; fuera de esa ventana solo plantillas aprobadas. Por eso los recordatorios son plantillas y tus respuestas solo salen con la ventana abierta.
 - Modo demo: con el número de prueba de Meta, los mensajes se redirigen al número de Ajustes → "Tu WhatsApp para pruebas"; lo que respondas desde tu teléfono llega a la conversación del cliente.
 - Con el canal Simulador nada sale de la app.
@@ -77,7 +79,8 @@ function estadoCuenta(db: Db) {
     montoPromesas: formatMXN(db.promesas.filter((p) => p.estado === 'pendiente').reduce((s, p) => s + p.monto, 0)),
     recordatoriosEnviados: db.mensajes.filter((m) => m.agente === 'redactor').length,
     canal: db.perfil.canal,
-    whatsappConfiguradoEnServidor: whatsappConfigurado,
+    whatsappConfiguradoEnServidor: whatsappConfigurado || registroWhatsAppDisponible,
+    whatsappPropio: db.perfil.wa.estado === 'conectado' ? `conectado (${db.perfil.wa.numero})` : db.perfil.wa.estado === 'verificando' ? 'esperando el código de verificación' : 'sin conectar',
     tieneTelefonoDePrueba: Boolean(db.perfil.telefonoPrueba),
     horarioDeEnvios: describirHorario(db.perfil.politicas),
     tonoMaximo: db.perfil.politicas.tonoMaximo
@@ -130,11 +133,15 @@ const FAQS: Faq[] = [
     patron: /(whatsapp|meta|numero|telefono|24 ?h|ventana)/,
     respuesta: (db) =>
       'Meta solo permite texto libre durante 24 h después del último mensaje del cliente; fuera de esa ventana solo plantillas aprobadas. ' +
-      (whatsappConfigurado
+      (db.perfil.wa.estado === 'conectado'
+        ? `Tu número ${db.perfil.wa.numero} ya está conectado: los recordatorios salen desde ahí.`
+        : registroWhatsAppDisponible
+        ? 'Para enviar desde el número de tu empresa: Ajustes → "Conectar mi WhatsApp", escribe tu número y el nombre del negocio y confirma el código de 6 dígitos que te llega por SMS. Ese número no puede estar activo en la app de WhatsApp.'
+        : whatsappConfigurado
         ? 'Para probarlo, en Ajustes activa el canal WhatsApp y escribe tu número en "Tu WhatsApp para pruebas": los mensajes te llegarán a ti.'
         : 'Este servidor aún no tiene WhatsApp configurado, así que se usa el Simulador.') +
       (db.perfil.canal === 'simulador' ? ' Ahora estás en modo Simulador.' : ''),
-    acciones: () => [{ destino: 'whatsapp', etiqueta: 'Configurar WhatsApp' }]
+    acciones: () => [{ destino: 'whatsapp', etiqueta: 'Conectar mi WhatsApp' }]
   },
   {
     patron: /(horario|tono|regla|politica|ajuste|configur)/,

@@ -12,8 +12,8 @@
 import { priorizar } from '../agents/analista.js';
 import { redactar } from '../agents/redactor.js';
 import { canalSimulador, type CanalMensajeria } from '../channels/canal.js';
-import { canalWhatsApp } from '../channels/whatsapp.js';
-import { whatsappConfigurado } from '../env.js';
+import { crearCanalWhatsApp } from '../channels/whatsapp.js';
+import { env, whatsappConfigurado } from '../env.js';
 import {
   actualizarFacturas,
   bitacora,
@@ -33,9 +33,16 @@ import type { Cliente, ClienteResumen, Mensaje, ProgresoCobranza, PromesaPago, R
 /** Errores de negocio: la ruta responde 409 y la UI muestra el mensaje tal cual. */
 export class ErrorDeNegocio extends Error {}
 
+/** Número desde el que envía esta cuenta: el suyo si lo conectó; si no, el compartido de demo. */
+export function numeroDeEnvio(db: Db): string | null {
+  if (db.perfil.wa.estado === 'conectado' && db.perfil.wa.phoneNumberId) return db.perfil.wa.phoneNumberId;
+  return whatsappConfigurado ? env.whatsapp.phoneNumberId : null;
+}
+
 export function canalPara(db: Db, cliente: Cliente): CanalMensajeria {
-  if (db.perfil.canal === 'simulador' || cliente.canal === 'simulador' || !whatsappConfigurado) return canalSimulador;
-  return canalWhatsApp;
+  const numero = numeroDeEnvio(db);
+  if (db.perfil.canal === 'simulador' || cliente.canal === 'simulador' || !numero) return canalSimulador;
+  return crearCanalWhatsApp(numero);
 }
 
 /** En modo demo todos los WhatsApp se redirigen al número de prueba del administrador. */

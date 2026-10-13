@@ -95,27 +95,33 @@ npm run dev               # http://localhost:8787/health
 
 > El plan gratuito de Render "duerme" el servidor tras 15 minutos sin uso, y la primera petición tarda unos 30 segundos. Para evitarlo, el workflow `.github/workflows/mantener-despierto.yml` hace ping a `/health` cada 5 minutos (el mínimo de GitHub Actions) de 7:00 a 1:00. Con el repo **público** los minutos de Actions son gratis; si es privado, este ping consume más que los 2,000 minutos gratuitos del mes. Solo tienes que crear el secreto **`RENDER_HEALTH_URL`** en GitHub (*Settings → Secrets and variables → Actions*) con `https://TU-BACKEND.onrender.com/health`. Si aun así se durmiera, la app lo indica y permite reintentar.
 
-## WhatsApp Cloud API (opcional)
+## WhatsApp Cloud API
 
 Sin estas variables, Cobrix usa el **simulador**: tú respondes como el cliente dentro de la app.
 
-1. En **Meta for Developers**, abre tu app y agrega el producto **WhatsApp**. Meta te da un **número de prueba** gratis, sin necesidad de publicar la app.
-2. En **API Setup**, registra tu número personal como destinatario de prueba.
-3. Para un token permanente, en **Business Settings → System users** crea un usuario de sistema con permiso `whatsapp_business_messaging` y genera el token. El token temporal del panel vence en 24 h.
-4. En **Configuration → Webhook**:
-   - Callback URL: `https://TU-BACKEND.onrender.com/webhooks/whatsapp`
-   - Verify token: el mismo valor que pongas en `WHATSAPP_VERIFY_TOKEN`
-   - Suscríbete al campo **messages**.
-5. En **WhatsApp Manager → Plantillas**, crea estas tres plantillas (categoría **Utility**, idioma **Spanish (MEX)**):
+### Cada empresa conecta su propio número (desde la app)
 
-| Nombre | Cuerpo |
-|---|---|
-| `cobrix_recordatorio_amable` | Hola {{1}}, buen día. Te escribimos de {{2}} para recordarte que la factura {{3}} por {{4}} está pendiente de pago. ¿Nos ayudas confirmando la fecha en que podrás cubrirla? ¡Gracias! |
-| `cobrix_seguimiento_firme` | {{1}}, seguimos sin registrar el pago de la factura {{2}} por {{3}}, con {{4}} días de atraso. Necesitamos acordar una fecha de pago esta semana para evitar recargos. Responde este mensaje y lo resolvemos. |
-| `cobrix_aviso_final` | {{1}}, este es nuestro último aviso sobre la factura {{2}} por {{3}}. Si no recibimos respuesta en 48 horas, el adeudo se turnará a nuestro despacho jurídico. Aún podemos acordar un plan de pagos si nos escribes hoy. |
+Cobrix registra el número de cada empresa en **su propia cuenta de WhatsApp Business** por la Graph API. El usuario no entra a Meta:
 
-6. Configura `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN` y `WHATSAPP_APP_SECRET` en Render.
-7. En la app, ve a **Ajustes**: activa el canal **WhatsApp** y escribe tu número en **"Tu WhatsApp para pruebas"**. Como el número de prueba solo puede escribir a destinatarios registrados, todos los mensajes de la demo se redirigen a tu número, y lo que respondas desde tu teléfono aparece en la conversación del cliente, marcada como "Requiere atención".
+1. Ajustes → **Conectar mi WhatsApp**: número + nombre del negocio → `POST /{WABA}/phone_numbers` y `POST /{número}/request_code` (SMS o llamada).
+2. Escribe el código de 6 dígitos → `verify_code` → `register` → `subscribed_apps`.
+3. Cobrix crea las 3 plantillas que falten (`POST /{WABA}/message_templates`, Utility, es_MX) y muestra su estado de aprobación.
+
+Desde ahí, los recordatorios de esa cuenta salen de su número y el webhook ubica cada respuesta por `metadata.phone_number_id`.
+
+**Configuración (una vez, en Meta):**
+1. En **business.facebook.com**, crea el portafolio comercial; en **developers.facebook.com**, agrega el producto **WhatsApp** a tu app. Anota el **ID de la cuenta de WhatsApp Business** (WABA).
+2. Agrega un **método de pago** en WhatsApp Manager (Meta cobra las conversaciones a esta cuenta).
+3. **Usuarios del sistema** → crea uno Administrador, asígnale la app y la cuenta de WhatsApp, y genera un token *sin caducidad* con `whatsapp_business_management` y `whatsapp_business_messaging`.
+4. **Webhook** (WhatsApp → Configuración): Callback `https://TU-BACKEND.onrender.com/webhooks/whatsapp`, Verify token = `WHATSAPP_VERIFY_TOKEN`, suscrito a **messages**.
+5. En Render: `WHATSAPP_TOKEN`, `WHATSAPP_WABA_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`.
+6. En Supabase, ejecuta `supabase/003_whatsapp_empresa.sql` si tu base ya existía.
+
+**Límites:** el número **no puede estar activo** en la app de WhatsApp (hay que borrar esa cuenta antes); sin verificación del negocio, Meta permite pocos números por cuenta. Para que las empresas usen el número que ya tienen en WhatsApp Business (coexistencia), el camino es **Embedded Signup** (requiere ser Tech Provider).
+
+### Número compartido de demo (opcional)
+
+Con `WHATSAPP_PHONE_NUMBER_ID` las cuentas sin número propio envían desde el número de prueba de Meta. Como solo puede escribir a destinatarios registrados, en **Ajustes → "Tu WhatsApp para pruebas"** cada usuario pone su número y los mensajes de la demo se redirigen ahí.
 
 **Para producción:** verificación del negocio, número propio, plantillas aprobadas y App Review de Meta.
 
