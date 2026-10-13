@@ -21,7 +21,7 @@ create table if not exists public.perfiles (
   user_id         uuid primary key references auth.users (id) on delete cascade,
   nombre          text not null default 'Invitado',
   empresa         text not null default 'Distribuidora del Valle',
-  canal           text not null default 'simulador' check (canal in ('whatsapp', 'simulador')),
+  canal           text not null default 'whatsapp' check (canal in ('whatsapp', 'simulador')),
   -- Número real al que se redirigen los mensajes de WhatsApp en modo demo
   -- (el número de prueba de Meta solo puede escribir a destinatarios registrados).
   telefono_prueba text,

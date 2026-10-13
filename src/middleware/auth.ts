@@ -24,7 +24,7 @@ async function asegurarPerfil(user: { id: string; is_anonymous?: boolean; user_m
   revisar(
     await supabase
       .from('perfiles')
-      .upsert({ user_id: user.id, nombre, empresa, es_anonimo: Boolean(user.is_anonymous) }, { onConflict: 'user_id', ignoreDuplicates: true }),
+      .upsert({ user_id: user.id, nombre, empresa, canal: 'whatsapp', es_anonimo: Boolean(user.is_anonymous) }, { onConflict: 'user_id', ignoreDuplicates: true }),
     'crear perfil'
   );
   await sembrarDemo(user.id, empresa);
