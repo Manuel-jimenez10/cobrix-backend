@@ -120,14 +120,13 @@ export const mensajes: Mensaje[] = [
 
 
 export const eventosAgente: EventoAgente[] = [
-{ id: 'e01', clienteId: null, agente: 'analista', accion: 'Recalculó prioridades', detalle: '15 clientes evaluados · 5 en prioridad alta', estado: 'completado', fecha: hace(0, 0, 3) },
-{ id: 'e02', clienteId: 'c13', agente: 'redactor', accion: 'Preparó seguimiento', detalle: 'Tono amable para Imprenta Morales', estado: 'completado', fecha: hace(0, 0, 9) },
-{ id: 'e03', clienteId: 'c12', agente: 'negociador', accion: 'Respondió al cliente', detalle: 'Reenvío de la factura F-1030 · Farmacia San Rafael', estado: 'completado', fecha: hace(0, 0, 18) },
-{ id: 'e04', clienteId: null, agente: 'director', accion: 'Resumen matutino listo', detalle: '$354,400 vencidos · 4 promesas activas', estado: 'completado', fecha: hace(0, 0, 34) },
-{ id: 'e05', clienteId: 'c03', agente: 'negociador', accion: 'Registró una promesa de pago', detalle: '$6,480.00 MXN · Abarrotes Doña Mary · hoy', estado: 'completado', fecha: hace(0, 0, 52) },
-{ id: 'e06', clienteId: 'c09', agente: 'analista', accion: 'Subió prioridad', detalle: 'Transportes Gómez pasó de media a alta', estado: 'completado', fecha: hace(0, 1, 15) },
-{ id: 'e07', clienteId: 'c05', agente: 'negociador', accion: 'Marcó el caso en revisión', detalle: 'Refaccionaria Castillo disputa el cargo', estado: 'completado', fecha: hace(0, 2, 5) },
-{ id: 'e08', clienteId: 'c01', agente: 'analista', accion: 'Detectó una respuesta · requiere tu atención', detalle: 'Ferretería López pidió opciones de pago', estado: 'completado', fecha: hace(0, 6) }];
+{ id: 'e01', clienteId: null, agente: 'analista', accion: 'Prioridades actualizadas', detalle: '15 clientes · 5 en prioridad alta', estado: 'completado', fecha: hace(0, 0, 3) },
+{ id: 'e02', clienteId: 'c13', agente: 'redactor', accion: 'Recordatorio enviado a Imprenta Morales', detalle: 'Plantilla amable · WhatsApp', estado: 'completado', fecha: hace(0, 0, 9) },
+{ id: 'e03', clienteId: 'c12', agente: 'negociador', accion: 'Respondiste a Farmacia San Rafael', detalle: 'Reenvío de la factura F-1030', estado: 'completado', fecha: hace(0, 0, 18) },
+{ id: 'e05', clienteId: 'c03', agente: 'negociador', accion: 'Promesa de pago de Abarrotes Doña Mary', detalle: '$6,480.00 MXN para hoy', estado: 'completado', fecha: hace(0, 0, 52) },
+{ id: 'e06', clienteId: 'c09', agente: 'analista', accion: 'Transportes Gómez subió a prioridad alta', detalle: '46 días de atraso sin respuesta', estado: 'completado', fecha: hace(0, 1, 15) },
+{ id: 'e07', clienteId: 'c05', agente: 'negociador', accion: 'Refaccionaria Castillo en revisión', detalle: 'Disputa el cargo por una refacción defectuosa', estado: 'completado', fecha: hace(0, 2, 5) },
+{ id: 'e08', clienteId: 'c01', agente: 'analista', accion: 'Ferretería López te escribió', detalle: '“¿Podemos ver una opción en pagos?” · espera tu respuesta', estado: 'completado', fecha: hace(0, 6) }];
 
 
 export const promesas: PromesaPago[] = [

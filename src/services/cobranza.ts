@@ -85,7 +85,7 @@ export async function iniciarCobranza(
   const evA = log.emitir({
     agente: 'analista',
     clienteId: null,
-    accion: 'Priorizando cola de cobranza',
+    accion: 'Ordenando clientes por prioridad',
     detalle: `${candidatos.length} clientes en evaluación`,
     estado: 'en_progreso'
   });
@@ -105,7 +105,7 @@ export async function iniciarCobranza(
   }));
   log.actualizar(evA, {
     estado: 'completado',
-    accion: 'Priorizó la cola',
+    accion: 'Clientes ordenados por prioridad',
     detalle: priorizados[0]
       ? `${priorizados[0].empresa} va primero · score ${priorizados[0].prioridad.score}${omitidos.length ? ` · ${omitidos.length} omitido(s)` : ''}`
       : 'Nadie necesita recordatorio ahora'
@@ -121,12 +121,12 @@ export async function iniciarCobranza(
     const c = priorizados.find((x) => x.id === item.clienteId)!;
     const borrador = redactar(db, c, item.tono);
     reportar('enviando', c.id);
-    const evR = log.emitir({ agente: 'redactor', clienteId: c.id, accion: 'Enviando recordatorio', detalle: `Plantilla ${item.tono} · ${c.empresa}`, estado: 'en_progreso' });
+    const evR = log.emitir({ agente: 'redactor', clienteId: c.id, accion: `Enviando recordatorio a ${c.empresa}`, detalle: `Plantilla ${item.tono}`, estado: 'en_progreso' });
 
     const canal = canalPara(db, c);
     const envio = await canal.enviarPlantilla({ telefono: destinoDe(db, c), tono: item.tono, variables: borrador.variables });
     if (!envio.ok) {
-      log.actualizar(evR, { estado: 'error', accion: 'No se pudo enviar por WhatsApp', detalle: `${c.empresa} · ${envio.error ?? 'error desconocido'}` });
+      log.actualizar(evR, { estado: 'error', accion: `No se pudo enviar el recordatorio a ${c.empresa}`, detalle: envio.error ?? 'error desconocido' });
       continue;
     }
 
@@ -145,8 +145,8 @@ export async function iniciarCobranza(
     enviados.push(c.id);
     log.actualizar(evR, {
       estado: 'completado',
-      accion: canal.nombre === 'whatsapp' ? 'Recordatorio enviado por WhatsApp' : 'Recordatorio enviado al simulador',
-      detalle: `Plantilla ${item.tono} · ${c.empresa}`
+      accion: `Recordatorio enviado a ${c.empresa}`,
+      detalle: `Plantilla ${item.tono} · ${canal.nombre === 'whatsapp' ? 'WhatsApp' : 'simulador'}`
     });
   }
 
@@ -184,8 +184,8 @@ export async function recibirRespuesta(
   await emitirEvento(userId, {
     agente: 'analista',
     clienteId,
-    accion: 'Detectó una respuesta · requiere tu atención',
-    detalle: `${cliente.empresa}: “${vista}”`,
+    accion: `${cliente.empresa} te escribió`,
+    detalle: `“${vista}” · espera tu respuesta`,
     estado: 'completado'
   });
   return mensaje;
@@ -220,8 +220,8 @@ export async function responderComoEquipo(userId: string, clienteId: string, tex
   await emitirEvento(userId, {
     agente: 'negociador', // 'negociador' = acciones del equipo humano
     clienteId,
-    accion: 'Respondió al cliente',
-    detalle: cliente.empresa,
+    accion: `Respondiste a ${cliente.empresa}`,
+    detalle: texto.length > 60 ? `${texto.slice(0, 57)}…` : texto,
     estado: 'completado'
   });
   return mensaje;
@@ -254,8 +254,8 @@ export async function registrarPromesa(
   await emitirEvento(userId, {
     agente: 'negociador',
     clienteId,
-    accion: 'Registró una promesa de pago',
-    detalle: `${formatMXN(promesa.monto)} · ${cliente.empresa} · ${formatFecha(promesa.fechaCompromiso)}`,
+    accion: `Promesa de pago de ${cliente.empresa}`,
+    detalle: `${formatMXN(promesa.monto)} para el ${formatFecha(promesa.fechaCompromiso)}`,
     estado: 'completado'
   });
   return promesa;

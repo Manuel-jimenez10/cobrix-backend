@@ -5,18 +5,19 @@ export type DestinoGuia =
   | 'cartera'
   | 'cliente'
   | 'atencion'
-  | 'director'
   | 'promesas'
   | 'ajustes'
   | 'reglas'
   | 'whatsapp'
   | 'recorrido'
-  | 'iniciar_cobranza';
+  | 'iniciar_cobranza'
+  | 'registrar_promesa'
+  | 'guia';
 
 export interface AccionGuia {
   destino: DestinoGuia;
   etiqueta: string;
-  /** Solo para destino = cliente. */
+  /** Para destino = cliente o registrar_promesa. */
   clienteId?: string;
 }
 

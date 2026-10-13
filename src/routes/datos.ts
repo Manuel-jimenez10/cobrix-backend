@@ -94,7 +94,7 @@ datos.post('/facturas/pagar', async (c) => {
     'cumplir promesas'
   );
   await insertarPago(userId, clienteId, monto);
-  await emitirEvento(userId, { agente: 'director', clienteId, accion: 'Registró pago', detalle: `${cliente.empresa} · ${formatMXN(monto)}`, estado: 'completado' });
+  await emitirEvento(userId, { agente: 'director', clienteId, accion: `Pago registrado de ${cliente.empresa}`, detalle: `${formatMXN(monto)} · facturas liquidadas`, estado: 'completado' });
   return c.json({ monto });
 });
 
@@ -119,8 +119,8 @@ datos.post('/promesas/:id/cumplir', async (c) => {
   await emitirEvento(userId, {
     agente: 'negociador',
     clienteId: promesa.clienteId,
-    accion: 'Confirmó una promesa cumplida',
-    detalle: `${cliente?.empresa ?? ''} · ${formatMXN(promesa.monto)}`,
+    accion: `Promesa cumplida de ${cliente?.empresa ?? 'cliente'}`,
+    detalle: `${formatMXN(promesa.monto)} recibidos`,
     estado: 'completado'
   });
   return c.json({ ok: true });

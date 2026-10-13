@@ -34,7 +34,7 @@ export function resumir(db: Db, c: Cliente): ClienteResumen {
     clienteId: c.id,
     score: 0,
     nivel: 'baja' as const,
-    razon: 'El Analista aún no evalúa a este cliente.'
+    razon: 'Aún no se calcula la prioridad de este cliente.'
   };
   return {
     ...c,

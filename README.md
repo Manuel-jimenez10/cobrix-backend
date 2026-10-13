@@ -1,14 +1,13 @@
 # Cobrix · Backend de agentes
 
-Cobrix es una app de cobranza por **WhatsApp** para PyMEs mexicanas. Automatiza lo repetitivo, que es decidir a quién cobrar primero y mandar los recordatorios con plantillas aprobadas por Meta, y deja la conversación con el cliente en manos de una persona del equipo, porque en este negocio la relación es personal. Dos asistentes de IA acompañan al usuario: el **Director** responde sobre la cartera y la **Guía** le enseña a usar la app.
+Cobrix es una app de cobranza por **WhatsApp** para PyMEs mexicanas. Automatiza lo repetitivo, que es decidir a quién cobrar primero y mandar los recordatorios con plantillas aprobadas por Meta, y deja la conversación con el cliente en manos de una persona del equipo, porque en este negocio la relación es personal. La única IA es la **Guía**: le enseña al usuario a usar la app, responde datos de su cartera y le ilumina en pantalla dónde presionar.
 
 | Pieza | Qué hace | Cómo está construida |
 |---|---|---|
-| **Analista** (automático) | Decide a quién cobrar primero y explica por qué | Score 0-100 por reglas: atraso, monto, mensajes sin respuesta y promesas. Instantáneo y explicable |
-| **Redactor** (automático) | Envía el recordatorio que toca: amable → firme → final | Siempre plantilla aprobada por Meta, así que vale dentro y fuera de la ventana de 24 h |
+| **Prioridad** (automático) | Decide a quién cobrar primero y explica por qué | Score 0-100 por reglas: atraso, monto, mensajes sin respuesta y promesas. Instantáneo y explicable |
+| **Recordatorios** (automático) | Envía el recordatorio que toca: amable → firme → final | Siempre plantilla aprobada por Meta, así que vale dentro y fuera de la ventana de 24 h |
 | **Tu equipo** (personas) | Contesta a los clientes y registra promesas de pago | Cuando un cliente responde queda en **"Requiere atención"** y sus recordatorios se pausan |
-| **Director** (IA) | Responde sobre la cartera con datos reales y prepara envíos que tú confirmas | `streamText` + 9 herramientas. Responde con KPIs, gráficas, listas y confirmaciones dentro del chat |
-| **Guía** (IA) | Enseña a usar Cobrix y lleva al usuario a la pantalla correcta | `streamText` con un manual de la app, el estado real de la cuenta (`estado_de_mi_cuenta`) y botones de navegación (`mostrar_boton`) |
+| **Guía** (IA) | Enseña a usar Cobrix, responde sobre la cartera y señala dónde presionar | `streamText` con un manual de la app, el estado real de la cuenta (`estado_de_mi_cuenta`) y botones (`mostrar_boton`) que llevan a la pantalla e iluminan el botón exacto |
 
 > Este repo es la **API de agentes** (Hono + Vercel AI SDK + Gemini + Supabase + WhatsApp Cloud API). La interfaz vive en el repo **cobrix-frontend** de la misma organización.
 
@@ -28,7 +27,7 @@ Cobrix es una app de cobranza por **WhatsApp** para PyMEs mexicanas. Automatiza 
  │ /dashboard /clientes …           │◄──── Webhook ──── WhatsApp Cloud API
  │ /cobranza/iniciar   (NDJSON)     │───── Graph API ──►  (Meta)
  │ /cobranza/responder (NDJSON)     │
- │ /director/chat      (NDJSON)     │
+ │ /guia/chat          (NDJSON)     │
  └──────────────────────────────────┘
 ```
 
@@ -37,7 +36,7 @@ Cobrix es una app de cobranza por **WhatsApp** para PyMEs mexicanas. Automatiza 
 - **La API vive en código** (Hono) y no en reglas del dashboard: validación con Zod, lógica testeable y versionada. Supabase se usa como base de datos, auth y realtime.
 - **Multiusuario con RLS.** Cada fila tiene `user_id`. El frontend solo puede **leer** lo suyo; todas las escrituras pasan por el backend, que verifica el JWT. Cada cuenta nueva, y cada visitante de la demo anónima, recibe su propia cartera de ejemplo.
 - **Streaming NDJSON.** La UI ve el progreso de los agentes y el texto de la IA mientras se genera.
-- **La IA nunca inventa cifras.** El Director solo habla de números que vienen de sus herramientas, y el Analista parte de un score calculado.
+- **La IA nunca inventa cifras.** La Guía solo usa los números que le da su herramienta `estado_de_mi_cuenta`.
 - **Siempre funciona.** Si no hay API key de Gemini, se agota la capa gratuita o el modelo falla, los agentes pasan a reglas de respaldo y la demo no se rompe.
 - **Canal desacoplado.** La interfaz `CanalMensajeria` tiene dos implementaciones: `WhatsAppCloud` y `Simulador`. Agregar Twilio o Telegram no toca a los agentes.
 - **Proveedor de IA intercambiable.** Con el Vercel AI SDK, pasar de Gemini a OpenAI o Claude es cambiar una línea en `src/agents/modelo.ts`.
@@ -46,7 +45,7 @@ Cobrix es una app de cobranza por **WhatsApp** para PyMEs mexicanas. Automatiza 
 
 ## Flujo de cobranza
 
-1. **Iniciar cobranza** (`POST /cobranza/iniciar`, NDJSON): el Analista recalcula la prioridad y el Redactor envía la plantilla que toca. Se omite a quien espera respuesta, tiene una promesa vigente, está en revisión o no tiene saldo. La respuesta lista los omitidos.
+1. **Iniciar cobranza** (`POST /cobranza/iniciar`, NDJSON): se recalcula la prioridad y se envía la plantilla que toca. Se omite a quien espera respuesta, tiene una promesa vigente, está en revisión o no tiene saldo. La respuesta lista los omitidos.
 2. **El cliente responde** (webhook de WhatsApp o simulador `POST /cobranza/responder`): se guarda el mensaje, se marca "requiere atención" y se avisa por Realtime. Ninguna IA le contesta.
 3. **El equipo contesta** (`POST /clientes/:id/responder`): texto libre por WhatsApp. Solo sale con la ventana de 24 h abierta; si está cerrada responde 409 con el motivo.
 4. **Promesa de pago** (`POST /clientes/:id/promesa`): monto y fecha. Se valida contra el saldo y pausa los recordatorios hasta esa fecha.
@@ -59,7 +58,7 @@ En **Ajustes → Reglas de cobranza** se define el **horario de envíos** (`/cob
 
 ```
 ├── src/
-│   ├── agents/      director y guía (IA), analista y redactor (reglas), respaldo (sin IA)
+│   ├── agents/      guía (IA), analista y redactor (reglas)
 │   ├── channels/    whatsapp (Cloud API) y simulador
 │   ├── services/    flujos de cobranza (orquestación)
 │   ├── routes/      datos, agentes (streaming NDJSON) y webhook de WhatsApp

@@ -21,39 +21,36 @@ type Emitir = (ev: EventoGuia) => void;
 
 export const MANUAL = `
 # Qué es Cobrix
-App de cobranza por WhatsApp para PyMEs mexicanas. Automatiza lo repetitivo (decidir a quién cobrar y mandar recordatorios con plantillas aprobadas por Meta) y deja la conversación con el cliente en manos de una persona del equipo, porque en este negocio la relación es personal.
+App de gestión de cobranza por WhatsApp para PyMEs mexicanas. Cobrix ordena a quién cobrar primero y envía los recordatorios con plantillas aprobadas por Meta. La conversación con el cliente y los acuerdos de pago los lleva una persona del equipo (el usuario), porque en este negocio la relación es personal. La única IA es la Guía (tú), que explica cómo usar la app y señala dónde presionar.
 
-# Quién hace qué
-- Analista (automático, por reglas): ordena la cartera. Score 0-100: días de atraso (hasta 45 pts), monto respecto al mayor saldo (hasta 35), mensajes sin respuesta (hasta 15), promesas incumplidas (+8 c/u) y promesa vigente (-15). Alta ≥70, media ≥40. La razón se ve en el cliente → pestaña "Facturas y análisis".
-- Redactor (automático, plantillas): manda el recordatorio con la plantilla que toca según los intentos previos: amable → firme → final. Nunca supera el "tono máximo" de Ajustes. Las plantillas se pueden enviar siempre, incluso fuera de la ventana de 24 h.
-- Tú y tu equipo: cuando un cliente responde, su conversación queda marcada "Requiere atención", se pausan sus recordatorios y te llega el aviso. Contestas desde la conversación del cliente (o desde tu WhatsApp) y, si acuerdan fecha, registras la promesa.
-- Director (IA): chat para preguntar por tu cartera con datos reales ("¿cuánto falta por cobrar?", "¿quién no ha respondido?"). Puede preparar un envío de recordatorios, pero siempre pide tu confirmación.
-- Guía (yo, IA): explico cómo usar la app y te llevo a la pantalla correcta.
+# Flujo de trabajo (en este orden)
+1. Revisar la cartera: Inicio muestra cuánto te deben, lo vencido, lo recuperado y quién va primero.
+2. Contestar a quien te escribió: los clientes que respondieron aparecen en "Requieren tu atención" (Inicio) y con la etiqueta "Espera respuesta" (Cartera). Sus recordatorios se pausan hasta que les contestes. Abres al cliente, escribes en el cuadro de abajo con el modo "Tú (equipo)" y presionas enviar.
+3. Registrar la promesa: si acuerdan fecha, en la ficha del cliente presionas "Registrar promesa", eliges monto y fecha (atajos Hoy, Viernes, +7 días, +15 días) y presionas "Registrar promesa".
+4. Enviar recordatorios: el botón "Iniciar cobranza" (en Inicio; en el teléfono es el botón verde flotante) envía la plantilla que toca a cada cliente vencido: amable, luego firme y al final el aviso final. Se omite automáticamente a quien espera tu respuesta, tiene una promesa vigente, está en revisión o no tiene saldo. Antes de enviar ves la lista y confirmas con "Enviar recordatorios". También puedes enviar a un solo cliente desde su ficha con "Enviar recordatorio".
+5. Cobrar: en Promesas presionas "Marcar cumplida" cuando el cliente pague lo prometido; o en la ficha del cliente "Marcar pagada" si liquidó todo. Se suma a "Recuperado este mes".
+
+# Cómo se decide la prioridad
+Score 0-100 por reglas: días de atraso (hasta 45 pts), monto respecto al mayor saldo (hasta 35), mensajes sin respuesta (hasta 15), promesas incumplidas (+8 c/u) y promesa vigente (-15). Alta ≥70, media ≥40. La razón está en la ficha del cliente (pestaña "Facturas y análisis" en el teléfono).
 
 # Pantallas
-- Inicio: totales (por cobrar, vencido, recuperado del mes, promesas activas), "Requieren tu atención", "A quién cobrar hoy", antigüedad de la cartera y actividad en vivo. Botón "Iniciar cobranza".
-- Cartera: lista de clientes con búsqueda y filtros (estado, prioridad y "Requieren atención"). Puedes seleccionar varios y enviarles recordatorio. Al abrir un cliente:
-  · Botones "Enviar recordatorio", "Registrar promesa" y "Marcar pagada".
-  · Pestaña "Conversación": historial; el indicador muestra si la ventana de 24 h está abierta. Abajo escribes como "Tú (equipo)". En modo simulador hay un modo "Simular cliente" con respuestas rápidas para probar.
-  · Pestaña "Facturas y análisis": facturas, promesas y la razón de prioridad del Analista.
-- Director: chat con tarjetas, gráficas y listas. Las sugerencias de envío requieren confirmar.
-- Promesas: agrupadas en vencidas, hoy, esta semana, más adelante y cumplidas. "Marcar cumplida" registra el pago.
-- Ajustes: cuenta; "Reglas de cobranza" (horario permitido para enviar recordatorios y tono máximo); canal (Simulador o WhatsApp); "Tu WhatsApp para pruebas"; plantillas; cargar o vaciar datos de ejemplo; reiniciar el recorrido guiado.
-- Atajos en computadora: Ctrl/⌘+K buscar, Ctrl/⌘+J abrir el Director. En el teléfono, la barra inferior tiene Inicio, Cartera, Director y Promesas; Ajustes está en el ícono de engrane.
-
-# Al enviar recordatorios se omite automáticamente a quien:
-te escribió y espera tu respuesta, tiene una promesa de pago vigente, está en revisión del equipo o no tiene saldo. Fuera del horario configurado no se envía nada.
+- Inicio: totales, "Requieren tu atención", "A quién cobrar hoy", antigüedad de la cartera y "Actividad reciente".
+- Cartera: búsqueda, filtros ("Esperan respuesta", vencidos, por vencer, con promesa, prioridad). En el teléfono puedes deslizar una tarjeta a la derecha para enviar recordatorio o a la izquierda para marcar pagada.
+- Ficha del cliente: botones "Enviar recordatorio", "Registrar promesa", "Marcar pagada"; conversación con indicador de la ventana de 24 h; selector "Tú (equipo)" / "Simular cliente" (el simulador permite escribir como si fueras el cliente para probar sin WhatsApp).
+- Promesas: vencidas, hoy, esta semana, más adelante y cumplidas.
+- Ajustes (ícono de engrane en el teléfono): cuenta, canal (Simulador o WhatsApp), "Reglas de cobranza" (horario de envíos y tono máximo), conexión con WhatsApp y "Tu WhatsApp para pruebas", plantillas, datos de ejemplo y "Recorrido guiado".
+- Guía: en computadora el botón "¿Necesitas ayuda?" (abajo a la derecha); en el teléfono la pestaña "Guía".
 
 # WhatsApp
-- Meta solo permite texto libre dentro de las 24 h posteriores al último mensaje del cliente; fuera de esa ventana solo plantillas aprobadas. Por eso los recordatorios son plantillas y tus respuestas manuales solo salen con la ventana abierta.
-- Modo demo: con el número de prueba de Meta, todos los mensajes se redirigen al número que pongas en Ajustes → "Tu WhatsApp para pruebas"; lo que respondas desde tu teléfono llega a la conversación del cliente.
-- Sin WhatsApp configurado se usa el Simulador: nada sale de la app y tú puedes responder como si fueras el cliente.
+- Meta solo permite texto libre dentro de las 24 h posteriores al último mensaje del cliente; fuera de esa ventana solo plantillas aprobadas. Por eso los recordatorios son plantillas y tus respuestas solo salen con la ventana abierta.
+- Modo demo: con el número de prueba de Meta, los mensajes se redirigen al número de Ajustes → "Tu WhatsApp para pruebas"; lo que respondas desde tu teléfono llega a la conversación del cliente.
+- Con el canal Simulador nada sale de la app.
 
 # Datos de ejemplo
-Cada cuenta (y cada visitante de la demo) tiene su propia cartera de ejemplo; se puede vaciar o volver a cargar en Ajustes. Nada se envía a clientes reales.
+Cada cuenta tiene su propia cartera de ejemplo; se vacía o recarga en Ajustes. Nada se envía a clientes reales.
 `.trim();
 
-const DESTINOS = ['inicio', 'cartera', 'cliente', 'atencion', 'director', 'promesas', 'ajustes', 'reglas', 'whatsapp', 'recorrido', 'iniciar_cobranza'] as const satisfies readonly DestinoGuia[];
+const DESTINOS = ['inicio', 'cartera', 'cliente', 'atencion', 'promesas', 'ajustes', 'reglas', 'whatsapp', 'recorrido', 'iniciar_cobranza', 'registrar_promesa', 'guia'] as const satisfies readonly DestinoGuia[];
 
 function estadoCuenta(db: Db) {
   const rs = resumenes(db);
@@ -66,10 +63,18 @@ function estadoCuenta(db: Db) {
     clientes: rs.length,
     clientesConSaldo: conSaldo.length,
     porCobrar: formatMXN(conSaldo.reduce((s, r) => s + r.deuda, 0)),
+    vencido: formatMXN(rs.filter((r) => r.estado === 'vencido').reduce((s, r) => s + r.deuda, 0)),
+    clientesVencidos: rs.filter((r) => r.estado === 'vencido').length,
+    prioridadAlta: conSaldo
+      .filter((r) => r.prioridad.nivel === 'alta')
+      .sort((a, b) => b.prioridad.score - a.prioridad.score)
+      .slice(0, 3)
+      .map((r) => ({ id: r.id, empresa: r.empresa, deuda: formatMXN(r.deuda), diasAtraso: r.diasAtraso, razon: r.prioridad.razon })),
     requierenAtencion: atencion.slice(0, 5).map((r) => ({ id: r.id, empresa: r.empresa })),
     totalRequierenAtencion: atencion.length,
     listosParaRecordatorio: listos.length,
     promesasPendientes: db.promesas.filter((p) => p.estado === 'pendiente').length,
+    montoPromesas: formatMXN(db.promesas.filter((p) => p.estado === 'pendiente').reduce((s, p) => s + p.monto, 0)),
     recordatoriosEnviados: db.mensajes.filter((m) => m.agente === 'redactor').length,
     canal: db.perfil.canal,
     whatsappConfiguradoEnServidor: whatsappConfigurado,
@@ -104,18 +109,21 @@ const FAQS: Faq[] = [
     patron: /(promesa|compromet|acuerdo|fecha de pago)/,
     respuesta: () =>
       'Las promesas las registras tú: abre al cliente → "Registrar promesa", pon monto y fecha. Aparecen en Promesas y, cuando pague, toca "Marcar cumplida". Mientras la promesa esté vigente no se le envían recordatorios.',
-    acciones: () => [{ destino: 'promesas', etiqueta: 'Ir a Promesas' }]
+    acciones: (db) => {
+      const c = resumenes(db).find((r) => r.requiereAtencion) ?? resumenes(db).filter((r) => r.deuda > 0).sort((a, b) => b.prioridad.score - a.prioridad.score)[0];
+      return c ? [{ destino: 'registrar_promesa', etiqueta: `Registrar promesa de ${c.empresa}`.slice(0, 40), clienteId: c.id }] : [{ destino: 'promesas', etiqueta: 'Ir a Promesas' }];
+    }
   },
   {
     patron: /(recordatorio|enviar|mandar|cobrar|cobranza|plantilla)/,
     respuesta: () =>
-      'Toca "Iniciar cobranza": el Analista ordena a los clientes y el Redactor les manda la plantilla que toca (amable, firme o final). Se omite a quien espera tu respuesta o ya prometió pagar. También puedes enviar a un solo cliente desde su ficha con "Enviar recordatorio".',
+      'Toca "Iniciar cobranza": Cobrix ordena a los clientes por prioridad y les manda la plantilla que toca (amable, firme o final). Se omite a quien espera tu respuesta o ya prometió pagar. También puedes enviar a un solo cliente desde su ficha con "Enviar recordatorio".',
     acciones: () => [{ destino: 'iniciar_cobranza', etiqueta: 'Iniciar cobranza' }]
   },
   {
     patron: /(prioridad|score|primero|orden|analista)/,
     respuesta: () =>
-      'El Analista calcula un score de 0 a 100 con reglas: días de atraso, monto, mensajes sin respuesta y promesas incumplidas (una promesa vigente lo baja). Puedes ver la razón de cada cliente en su pestaña "Facturas y análisis".',
+      'Cobrix calcula un score de 0 a 100 con reglas: días de atraso, monto, mensajes sin respuesta y promesas incumplidas (una promesa vigente lo baja). Puedes ver la razón de cada cliente en su pestaña "Facturas y análisis".',
     acciones: () => [{ destino: 'cartera', etiqueta: 'Ver cartera' }]
   },
   {
@@ -135,10 +143,13 @@ const FAQS: Faq[] = [
     acciones: () => [{ destino: 'reglas', etiqueta: 'Abrir reglas de cobranza' }]
   },
   {
-    patron: /(director|pregunt|reporte|cuanto)/,
-    respuesta: () =>
-      'El Director es el asistente de IA para tu cartera: pregúntale "¿cuánto falta por cobrar?" o "¿quién no ha respondido?" y te contesta con tarjetas y datos reales. Si te sugiere un envío, tú lo confirmas.',
-    acciones: () => [{ destino: 'director', etiqueta: 'Hablar con el Director' }]
+    patron: /(cuanto|debe|vencid|cartera|resumen|reporte)/,
+    respuesta: (db) => {
+      const e = estadoCuenta(db);
+      return `Tienes ${e.porCobrar} por cobrar en ${e.clientesConSaldo} clientes; ${e.vencido} ya está vencido. Hay ${e.promesasPendientes} promesas activas por ${e.montoPromesas}.` +
+        (e.prioridadAlta[0] ? ` Lo más urgente es ${e.prioridadAlta[0].empresa} (${e.prioridadAlta[0].deuda}).` : '');
+    },
+    acciones: () => [{ destino: 'cartera', etiqueta: 'Ver cartera' }]
   },
   {
     patron: /(pag|liquid)/,
@@ -149,11 +160,8 @@ const FAQS: Faq[] = [
   {
     patron: /(empez|inicio|como funciona|que hago|ayuda|tutorial|recorrido|guia)/,
     respuesta: () =>
-      'Te sugiero este orden: 1) revisa la cartera y quién va primero, 2) inicia una cobranza, 3) en un cliente, simula su respuesta y contéstale como equipo, 4) registra la promesa. El recorrido guiado te lleva paso a paso.',
-    acciones: () => [
-      { destino: 'recorrido', etiqueta: 'Iniciar recorrido guiado' },
-      { destino: 'cartera', etiqueta: 'Ver cartera' }
-    ]
+      'El flujo es: 1) contesta a quien te escribió, 2) registra la promesa de pago, 3) envía recordatorios a los vencidos y 4) marca como cumplida la promesa cuando te paguen. El recorrido guiado te ilumina cada botón paso a paso.',
+    acciones: () => [{ destino: 'recorrido', etiqueta: 'Iniciar recorrido guiado' }]
   }
 ];
 
@@ -173,7 +181,6 @@ async function respaldo(db: Db, pregunta: string, emitir: Emitir) {
 const NOMBRE_PANTALLA: Record<string, string> = {
   '/': 'Inicio',
   '/cartera': 'Cartera',
-  '/director': 'Director',
   '/promesas': 'Promesas',
   '/ajustes': 'Ajustes'
 };
@@ -201,8 +208,11 @@ export async function guiar(db: Db, mensajes: MensajeGuia[], pantalla: string, e
         }),
         mostrar_boton: tool({
           description:
-            'Muestra un botón debajo de tu respuesta que lleva al usuario a una pantalla o acción. Úsalo cuando expliques algo que se hace en otra pantalla (máximo 2 por respuesta). ' +
-            'Destinos: inicio, cartera, cliente (requiere clienteId de estado_de_mi_cuenta), atencion (clientes que esperan respuesta), director, promesas, ajustes, reglas (reglas de cobranza), whatsapp (canal y teléfono de pruebas), recorrido (tutorial paso a paso), iniciar_cobranza.',
+            'Muestra un botón debajo de tu respuesta. Al presionarlo, la app lleva al usuario a la pantalla y le ILUMINA el botón exacto que debe presionar. ' +
+            'Úsalo siempre que el siguiente paso sea una acción en la app (máximo 2 por respuesta). Destinos: ' +
+            'inicio; cartera; cliente (ilumina el cuadro para responder; requiere clienteId); atencion (ilumina al primer cliente que espera respuesta); ' +
+            'registrar_promesa (ilumina el botón "Registrar promesa"; requiere clienteId); promesas (ilumina "Marcar cumplida"); iniciar_cobranza (ilumina "Iniciar cobranza"); ' +
+            'reglas (reglas de cobranza); whatsapp (canal y teléfono de pruebas); ajustes; recorrido (recorrido guiado paso a paso).',
           inputSchema: z.object({
             destino: z.enum(DESTINOS),
             etiqueta: z.string().max(40).describe('Texto corto del botón, p. ej. "Ir a Promesas"'),
@@ -210,9 +220,9 @@ export async function guiar(db: Db, mensajes: MensajeGuia[], pantalla: string, e
           }),
           execute: async ({ destino, etiqueta, clienteId }) => {
             if (acciones >= 2) return { mostrado: false, motivo: 'Máximo 2 botones por respuesta' };
-            if (destino === 'cliente' && !db.clientes.some((c) => c.id === clienteId)) return { mostrado: false, motivo: 'clienteId inválido' };
+            if ((destino === 'cliente' || destino === 'registrar_promesa') && !db.clientes.some((c) => c.id === clienteId)) return { mostrado: false, motivo: 'clienteId inválido' };
             acciones++;
-            emitir({ tipo: 'accion', accion: { destino, etiqueta, ...(destino === 'cliente' ? { clienteId } : {}) } });
+            emitir({ tipo: 'accion', accion: { destino, etiqueta, ...(clienteId && (destino === 'cliente' || destino === 'registrar_promesa') ? { clienteId } : {}) } });
             return { mostrado: true };
           }
         })
@@ -222,8 +232,8 @@ export async function guiar(db: Db, mensajes: MensajeGuia[], pantalla: string, e
         'Responde SOLO con base en este manual; si algo no está en el manual, dilo y sugiere lo más cercano. No inventes botones ni pantallas.',
         MANUAL,
         'Estilo: español de México, cálido y claro, máximo 4 frases o una lista corta de pasos numerados. Usa los nombres exactos de los botones entre comillas.',
-        'Si la pregunta depende de su cuenta (qué hago ahora, quién me respondió, por qué no se envió), consulta estado_de_mi_cuenta primero.',
-        'Cuando el siguiente paso esté en otra pantalla, ofrece un botón con mostrar_boton. No le pidas datos personales. Si preguntan algo ajeno a Cobrix, redirige con amabilidad.'
+        'Si la pregunta depende de su cuenta (cuánto me deben, qué hago ahora, quién me respondió, a quién cobro primero), consulta estado_de_mi_cuenta primero y responde con esas cifras exactas; nunca inventes datos.',
+        'Cuando expliques cómo hacer algo, termina con el botón (mostrar_boton) que le ilumina dónde presionar. No le pidas datos personales. Si preguntan algo ajeno a Cobrix, redirige con amabilidad.'
       ].join('\n\n'),
       messages: turnosAlternados(
         mensajes.slice(-10).map((m) => ({ role: m.rol === 'usuario' ? ('user' as const) : ('assistant' as const), content: m.texto || '(vacío)' }))

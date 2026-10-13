@@ -1,19 +1,16 @@
 /**
- * Endpoints de agentes y de conversación con clientes.
- * Los de agentes responden en streaming NDJSON (una línea JSON por evento)
- * para que la UI vea el progreso y el texto de la IA mientras se genera.
+ * Endpoints de cobranza, conversación con clientes y la Guía (IA).
+ * El envío de recordatorios y la Guía responden en streaming NDJSON (una línea JSON por evento).
  */
 import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { stream } from 'hono/streaming';
 import { z } from 'zod';
-import { dirigir } from '../agents/director.js';
 import { guiar } from '../agents/guia.js';
 import { cargarDb, obtenerPerfil } from '../domain/db.js';
 import { limiteIA, type AppEnv } from '../middleware/auth.js';
 import { iniciarCobranza, recibirRespuesta, registrarPromesa, responderComoEquipo } from '../services/cobranza.js';
 import { describirHorario, dentroDeHorario } from '../shared/politicas.js';
-import type { MensajeDirector } from '../shared/director-types.js';
 import type { MensajeGuia } from '../shared/guia-types.js';
 
 export const agentes = new Hono<AppEnv>();
@@ -73,24 +70,6 @@ agentes.post('/clientes/:id/promesa', async (c) => {
     .object({ monto: z.number().positive().max(100_000_000), fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha AAAA-MM-DD') })
     .parse(await c.req.json());
   return c.json({ promesa: await registrarPromesa(c.get('userId'), c.req.param('id'), datos) });
-});
-
-const bloque = z.object({ tipo: z.string() }).passthrough();
-agentes.post('/director/chat', limiteIA, async (c) => {
-  const { mensajes } = z
-    .object({
-      mensajes: z
-        .array(z.object({ id: z.string(), rol: z.enum(['usuario', 'director']), bloques: z.array(bloque), fecha: z.string() }).passthrough())
-        .min(1)
-        .max(60)
-    })
-    .parse(await c.req.json());
-  const userId = c.get('userId');
-  return ndjson(c, async (enviar) => {
-    const db = await cargarDb(userId);
-    await dirigir(db, mensajes as unknown as MensajeDirector[], enviar);
-    enviar({ tipo: 'fin' });
-  });
 });
 
 agentes.post('/guia/chat', limiteIA, async (c) => {
