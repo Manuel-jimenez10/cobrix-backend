@@ -1,4 +1,8 @@
 export type Canal = 'whatsapp' | 'simulador';
+/**
+ * 'negociador' se conserva por compatibilidad con la base de datos: hoy representa
+ * las acciones de una persona del equipo (respuestas y promesas registradas a mano).
+ */
 export type AgenteId = 'director' | 'analista' | 'redactor' | 'negociador';
 export type Tono = 'amable' | 'firme' | 'final';
 export type EstadoFactura = 'pendiente' | 'vencida' | 'pagada' | 'promesa';
@@ -81,6 +85,8 @@ export interface ClienteResumen extends Cliente {
   facturasAbiertas: number;
   ultimoMensaje: Mensaje | null;
   escalado: boolean;
+  /** El cliente escribió y nadie del equipo le ha contestado. */
+  requiereAtencion: boolean;
 }
 
 export interface ClienteDetalle {
@@ -153,15 +159,9 @@ export interface ProgresoCobranza {
 export interface ResultadoCobranza {
   enviados: number;
   mensajes: Mensaje[];
+  /** Clientes que no recibieron recordatorio y por qué (esperan respuesta, promesa activa…). */
+  omitidos: { clienteId: string; empresa: string; motivo: string }[];
 }
-
-export type EventoNegociacion =
-{tipo: 'cliente';mensaje: Mensaje;} |
-{tipo: 'pensando';} |
-{tipo: 'delta';texto: string;} |
-{tipo: 'promesa';promesa: PromesaPago;} |
-{tipo: 'escalamiento';escalamiento: Escalamiento;} |
-{tipo: 'fin';mensaje: Mensaje;};
 
 export interface Ajustes {
   canal: Canal;

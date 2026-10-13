@@ -44,7 +44,8 @@ export function resumir(db: Db, c: Cliente): ClienteResumen {
     prioridad: abiertas.length ? prioridad : { ...prioridad, score: 0, nivel: 'baja', razon: 'Sin saldo pendiente.' },
     facturasAbiertas: abiertas.length,
     ultimoMensaje: msgs[msgs.length - 1] ?? null,
-    escalado: db.escalamientos.some((e) => e.clienteId === c.id && !e.resuelto)
+    escalado: db.escalamientos.some((e) => e.clienteId === c.id && !e.resuelto),
+    requiereAtencion: msgs[msgs.length - 1]?.rol === 'cliente'
   };
 }
 

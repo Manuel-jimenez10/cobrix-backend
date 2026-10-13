@@ -8,7 +8,7 @@ import { Hono } from 'hono';
 import { firmaValida, soloDigitos, variantesMx } from '../channels/whatsapp.js';
 import { env } from '../env.js';
 import { supabase } from '../lib/supabase.js';
-import { procesarRespuesta } from '../services/cobranza.js';
+import { recibirRespuesta } from '../services/cobranza.js';
 
 export const webhook = new Hono();
 
@@ -82,7 +82,7 @@ async function atender(m: MensajeEntrante) {
     console.warn(`[webhook] Mensaje de un número desconocido (${m.from.slice(0, 5)}…), se ignora.`);
     return;
   }
-  await procesarRespuesta(destino.userId, destino.clienteId, texto, 'whatsapp', undefined, m.id);
+  await recibirRespuesta(destino.userId, destino.clienteId, texto, 'whatsapp', m.id);
 }
 
 webhook.post('/', async (c) => {

@@ -10,6 +10,8 @@ import { agentes } from './routes/agentes.js';
 import { datos } from './routes/datos.js';
 import { webhook } from './routes/webhook.js';
 
+import { ErrorDeNegocio } from './services/cobranza.js';
+
 const app = new Hono<AppEnv>();
 
 app.use('*', logger());
@@ -37,6 +39,7 @@ app.route('/', privado);
 
 app.onError((error, c) => {
   if (error instanceof HTTPException) return c.json({ error: error.message }, error.status);
+  if (error instanceof ErrorDeNegocio) return c.json({ error: error.message }, 409);
   if (error instanceof ZodError) return c.json({ error: 'Datos inválidos', detalles: error.issues }, 400);
   console.error(error);
   return c.json({ error: 'Error interno del servidor' }, 500);

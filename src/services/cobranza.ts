@@ -1,26 +1,25 @@
 /**
  * Orquestación de los flujos de cobranza (los usan las rutas HTTP y el webhook).
  *
- *   iniciarCobranza:   Analista prioriza → Redactor redacta → se envía por el canal.
- *   procesarRespuesta: llega la respuesta del deudor → Negociador contesta →
- *                      registra promesa o escala → se responde por el canal.
+ *   iniciarCobranza:     Analista prioriza (reglas) → Redactor arma la plantilla → se envía por el canal.
+ *   recibirRespuesta:    el cliente contesta → se guarda y se marca "requiere atención" para el equipo.
+ *   responderComoEquipo: una persona del equipo contesta desde la app (texto libre dentro de la ventana de 24 h).
+ *   registrarPromesa:    una persona registra el compromiso de pago que acordó con el cliente.
  *
+ * La negociación la hace una persona: en cobranza de PyMEs la relación es personal.
  * Cada paso emite un evento en eventos_agente → Supabase Realtime → dashboard en vivo.
  */
-import { afinarConIA, priorizarRapido } from '../agents/analista.js';
-import { negociar } from '../agents/negociador.js';
+import { priorizar } from '../agents/analista.js';
 import { redactar } from '../agents/redactor.js';
 import { canalSimulador, type CanalMensajeria } from '../channels/canal.js';
 import { canalWhatsApp } from '../channels/whatsapp.js';
 import { whatsappConfigurado } from '../env.js';
 import {
-  actualizarEvento,
   actualizarFacturas,
   bitacora,
   cargarDb,
   emitirEvento,
   guardarPrioridades,
-  insertarEscalamiento,
   insertarMensaje,
   insertarPromesa,
   type Db
@@ -29,17 +28,10 @@ import { facturasAbiertas, resumir } from '../domain/logic.js';
 import { formatFecha, formatMXN } from '../shared/format.js';
 import { describirHorario, dentroDeHorario, limitarTono } from '../shared/politicas.js';
 import { estadoVentana, siguienteTono } from '../shared/reglas.js';
-import type {
-  Cliente,
-  EventoNegociacion,
-  Mensaje,
-  ProgresoCobranza,
-  ResultadoCobranza,
-  Tono
-} from '../shared/types.js';
+import type { Cliente, ClienteResumen, Mensaje, ProgresoCobranza, PromesaPago, ResultadoCobranza, Tono } from '../shared/types.js';
 
-/** Error de política: la UI lo muestra tal cual. */
-export class FueraDeHorario extends Error {}
+/** Errores de negocio: la ruta responde 409 y la UI muestra el mensaje tal cual. */
+export class ErrorDeNegocio extends Error {}
 
 export function canalPara(db: Db, cliente: Cliente): CanalMensajeria {
   if (db.perfil.canal === 'simulador' || cliente.canal === 'simulador' || !whatsappConfigurado) return canalSimulador;
@@ -49,6 +41,22 @@ export function canalPara(db: Db, cliente: Cliente): CanalMensajeria {
 /** En modo demo todos los WhatsApp se redirigen al número de prueba del administrador. */
 export const destinoDe = (db: Db, cliente: Cliente) => db.perfil.telefonoPrueba || cliente.telefono;
 
+const inicioDeHoy = () => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+/** Por qué NO conviene mandarle un recordatorio automático a este cliente (o null si sí). */
+export function motivoParaOmitir(db: Db, c: ClienteResumen): string | null {
+  if (c.deuda <= 0) return 'Sin saldo pendiente';
+  if (c.requiereAtencion) return 'Te escribió y espera tu respuesta';
+  if (c.escalado) return 'Caso en revisión del equipo';
+  const promesaVigente = db.promesas.some((p) => p.clienteId === c.id && p.estado === 'pendiente' && new Date(p.fechaCompromiso) >= inicioDeHoy());
+  if (promesaVigente) return 'Tiene una promesa de pago vigente';
+  return null;
+}
+
 export async function iniciarCobranza(
   userId: string,
   clienteIds: string[],
@@ -57,17 +65,22 @@ export async function iniciarCobranza(
   const db = await cargarDb(userId);
   const politicas = db.perfil.politicas;
   if (!dentroDeHorario(politicas)) {
-    throw new FueraDeHorario(`Fuera del horario de cobranza configurado (${describirHorario(politicas)}). Cámbialo en Ajustes → Políticas.`);
+    throw new ErrorDeNegocio(`Fuera del horario de envíos configurado (${describirHorario(politicas)}). Cámbialo en Ajustes → Reglas de cobranza.`);
   }
   const log = bitacora(userId);
-  const candidatos = clienteIds
+  const seleccion = clienteIds
     .map((id) => db.clientes.find((c) => c.id === id))
     .filter((c): c is Cliente => Boolean(c))
-    .map((c) => resumir(db, c))
-    .filter((c) => c.deuda > 0 && !c.escalado);
+    .map((c) => resumir(db, c));
 
-  // 1. Analista: orden instantáneo. Usa la prioridad que ya tenía cada cliente y calcula por reglas
-  //    solo a los nuevos. La IA afina scores y razones en segundo plano (no bloquea el envío).
+  const omitidos: ResultadoCobranza['omitidos'] = [];
+  const candidatos = seleccion.filter((c) => {
+    const motivo = motivoParaOmitir(db, c);
+    if (motivo) omitidos.push({ clienteId: c.id, empresa: c.empresa, motivo });
+    return !motivo;
+  });
+
+  // 1. Analista: recalcula la prioridad por reglas (instantáneo) y ordena la cola.
   opciones.onProgreso?.({ fase: 'analizando', orden: [], actualId: null, enviados: [] });
   const evA = log.emitir({
     agente: 'analista',
@@ -76,11 +89,10 @@ export async function iniciarCobranza(
     detalle: `${candidatos.length} clientes en evaluación`,
     estado: 'en_progreso'
   });
-  const sinPrioridad = candidatos.filter((c) => !db.prioridades.some((p) => p.clienteId === c.id));
-  const nuevas = priorizarRapido(db, sinPrioridad);
+  const nuevas = priorizar(db, candidatos);
   if (nuevas.length) {
     await guardarPrioridades(userId, nuevas);
-    db.prioridades = [...db.prioridades, ...nuevas];
+    db.prioridades = [...db.prioridades.filter((p) => !nuevas.some((n) => n.clienteId === p.clienteId)), ...nuevas];
   }
 
   const priorizados = candidatos.map((c) => resumir(db, c)).sort((a, b) => b.prioridad.score - a.prioridad.score);
@@ -94,34 +106,25 @@ export async function iniciarCobranza(
   log.actualizar(evA, {
     estado: 'completado',
     accion: 'Priorizó la cola',
-    detalle: priorizados[0] ? `${priorizados[0].empresa} va primero · score ${priorizados[0].prioridad.score}` : 'Sin clientes por cobrar'
+    detalle: priorizados[0]
+      ? `${priorizados[0].empresa} va primero · score ${priorizados[0].prioridad.score}${omitidos.length ? ` · ${omitidos.length} omitido(s)` : ''}`
+      : 'Nadie necesita recordatorio ahora'
   });
-
-  // 2. Redactor: todos los borradores en paralelo (las plantillas son instantáneas;
-  //    solo los clientes con ventana de 24 h abierta llaman a la IA).
-  const borradores = new Map(
-    await Promise.all(orden.map(async (item) => [item.clienteId, await redactar(db, priorizados.find((x) => x.id === item.clienteId)!, item.tono)] as const))
-  );
 
   const enviados: string[] = [];
   const mensajes: Mensaje[] = [];
   const reportar = (fase: ProgresoCobranza['fase'], actualId: string | null) =>
     opciones.onProgreso?.({ fase, orden, actualId, enviados: [...enviados] });
 
-  // 3. Envío por el canal, en orden de prioridad
+  // 2. Redactor + envío, en orden de prioridad. Siempre plantilla aprobada: vale dentro y fuera de la ventana de 24 h.
   for (const item of orden) {
     const c = priorizados.find((x) => x.id === item.clienteId)!;
-    const borrador = borradores.get(c.id)!;
-    reportar('redactando', c.id);
-    const evR = log.emitir({ agente: 'redactor', clienteId: c.id, accion: 'Redactando mensaje', detalle: `Tono ${item.tono} para ${c.empresa}`, estado: 'en_progreso' });
-
+    const borrador = redactar(db, c, item.tono);
     reportar('enviando', c.id);
-    const canal = canalPara(db, c);
-    const destino = destinoDe(db, c);
-    const envio = borrador.esPlantilla
-      ? await canal.enviarPlantilla({ telefono: destino, tono: item.tono, variables: borrador.variables })
-      : await canal.enviarTexto(destino, borrador.contenido);
+    const evR = log.emitir({ agente: 'redactor', clienteId: c.id, accion: 'Enviando recordatorio', detalle: `Plantilla ${item.tono} · ${c.empresa}`, estado: 'en_progreso' });
 
+    const canal = canalPara(db, c);
+    const envio = await canal.enviarPlantilla({ telefono: destinoDe(db, c), tono: item.tono, variables: borrador.variables });
     if (!envio.ok) {
       log.actualizar(evR, { estado: 'error', accion: 'No se pudo enviar por WhatsApp', detalle: `${c.empresa} · ${envio.error ?? 'error desconocido'}` });
       continue;
@@ -133,7 +136,7 @@ export async function iniciarCobranza(
       agente: 'redactor',
       contenido: borrador.contenido,
       tono: item.tono,
-      esPlantilla: borrador.esPlantilla,
+      esPlantilla: true,
       canal: canal.nombre,
       waMessageId: envio.messageId ?? null
     });
@@ -142,45 +145,32 @@ export async function iniciarCobranza(
     enviados.push(c.id);
     log.actualizar(evR, {
       estado: 'completado',
-      accion: canal.nombre === 'whatsapp' ? 'Mensaje enviado por WhatsApp' : 'Mensaje enviado al simulador',
-      detalle: `${borrador.esPlantilla ? 'Plantilla' : 'Mensaje'} ${item.tono} · ${c.empresa}`
+      accion: canal.nombre === 'whatsapp' ? 'Recordatorio enviado por WhatsApp' : 'Recordatorio enviado al simulador',
+      detalle: `Plantilla ${item.tono} · ${c.empresa}`
     });
-    reportar('enviando', null);
   }
 
   reportar('listo', null);
   await log.listo();
-
-  // 4. En segundo plano: la IA afina scores y razones; Realtime avisa al dashboard cuando termina.
-  void (async () => {
-    const afinadas = await afinarConIA(db, candidatos);
-    if (!afinadas?.length) return;
-    await guardarPrioridades(userId, afinadas);
-    await emitirEvento(userId, {
-      agente: 'analista',
-      clienteId: null,
-      accion: 'Afinó prioridades con IA',
-      detalle: `${afinadas.length} clientes reevaluados`,
-      estado: 'completado'
-    });
-  })().catch((error) => console.warn('[Analista] afinado en segundo plano:', error));
-
-  return { enviados: enviados.length, mensajes };
+  return { enviados: enviados.length, mensajes, omitidos };
 }
 
-export async function procesarRespuesta(
+/**
+ * El cliente contestó (por WhatsApp o desde el simulador). No responde ninguna IA:
+ * se guarda, se pausan sus recordatorios y el equipo recibe el aviso en tiempo real.
+ */
+export async function recibirRespuesta(
   userId: string,
   clienteId: string,
   texto: string,
   origen: 'simulador' | 'whatsapp',
-  emitir: (ev: EventoNegociacion) => void = () => {},
   waMessageId?: string
-): Promise<void> {
+): Promise<Mensaje> {
   const db = await cargarDb(userId);
   const cliente = db.clientes.find((c) => c.id === clienteId);
-  if (!cliente) throw new Error('Cliente no encontrado');
+  if (!cliente) throw new ErrorDeNegocio('Cliente no encontrado');
 
-  const msgCliente = await insertarMensaje(userId, {
+  const mensaje = await insertarMensaje(userId, {
     clienteId,
     rol: 'cliente',
     agente: null,
@@ -190,83 +180,83 @@ export async function procesarRespuesta(
     canal: origen,
     waMessageId: waMessageId ?? null
   });
-  db.mensajes.push(msgCliente);
-  emitir({ tipo: 'cliente', mensaje: msgCliente });
-
-  const resumen = resumir(db, cliente);
-  const ev = await emitirEvento(userId, {
-    agente: 'negociador',
+  const vista = texto.length > 60 ? `${texto.slice(0, 57)}…` : texto;
+  await emitirEvento(userId, {
+    agente: 'analista',
     clienteId,
-    accion: 'Leyendo respuesta',
-    detalle: `${cliente.empresa} respondió`,
-    estado: 'en_progreso'
+    accion: 'Detectó una respuesta · requiere tu atención',
+    detalle: `${cliente.empresa}: “${vista}”`,
+    estado: 'completado'
   });
-  emitir({ tipo: 'pensando' });
+  return mensaje;
+}
 
-  // Saldos por encima del umbral configurado los atiende siempre una persona.
-  const umbral = db.perfil.politicas.escalar.montoMayorA;
-  const porMonto = !resumen.escalado && umbral !== null && resumen.deuda > umbral;
+/** Una persona del equipo le contesta al cliente desde la app. */
+export async function responderComoEquipo(userId: string, clienteId: string, texto: string): Promise<Mensaje> {
+  const db = await cargarDb(userId);
+  const cliente = db.clientes.find((c) => c.id === clienteId);
+  if (!cliente) throw new ErrorDeNegocio('Cliente no encontrado');
 
-  // Si el caso ya está escalado (o debe escalarse por monto), el agente no negocia.
-  const r = porMonto
-    ? await (async () => {
-        const t = `Gracias por tu mensaje, ${cliente.nombre.split(' ')[0]}. Para darte la mejor atención, una persona de nuestro equipo revisará tu caso y te contactará hoy mismo.`;
-        emitir({ tipo: 'delta', texto: t });
-        return { texto: t, tono: 'amable' as Tono, conIA: false, promesa: undefined, escalamiento: { motivo: `Saldo de ${formatMXN(resumen.deuda)} supera el límite de ${formatMXN(umbral!)} para negociación automática.` } };
-      })()
-    : resumen.escalado
-    ? await (async () => {
-        const t = `Gracias por tu mensaje, ${cliente.nombre.split(' ')[0]}. Tu caso lo está revisando una persona de nuestro equipo; te contactará a la brevedad.`;
-        emitir({ tipo: 'delta', texto: t });
-        return { texto: t, tono: 'amable' as Tono, conIA: false, promesa: undefined, escalamiento: undefined };
-      })()
-    : await negociar(db, resumen, (d) => emitir({ tipo: 'delta', texto: d }));
+  const canal = canalPara(db, cliente);
+  const ventana = estadoVentana(db.mensajes.filter((m) => m.clienteId === clienteId));
+  if (canal.nombre === 'whatsapp' && !ventana.abierta) {
+    throw new ErrorDeNegocio(
+      'La ventana de 24 h de WhatsApp está cerrada: Meta solo permite plantillas. Envía un recordatorio o escríbele desde tu WhatsApp Business.'
+    );
+  }
+  const envio = await canal.enviarTexto(destinoDe(db, cliente), texto);
+  if (!envio.ok) throw new ErrorDeNegocio(`WhatsApp rechazó el mensaje: ${envio.error ?? 'error desconocido'}`);
 
-  // Respuesta por el canal real (dentro de la ventana de 24 h se permite texto libre).
-  const canal = origen === 'whatsapp' ? canalPara(db, cliente) : canalSimulador;
-  const envio = await canal.enviarTexto(destinoDe(db, cliente), r.texto);
-
-  const msgAgente = await insertarMensaje(userId, {
+  const mensaje = await insertarMensaje(userId, {
     clienteId,
     rol: 'agente',
-    agente: 'negociador',
-    contenido: r.texto,
-    tono: r.tono,
+    agente: null, // null = lo escribió una persona del equipo
+    contenido: texto,
+    tono: null,
     esPlantilla: false,
     canal: canal.nombre,
     waMessageId: envio.messageId ?? null
   });
-
-  if (r.promesa) {
-    const abiertas = facturasAbiertas(db, clienteId).sort((a, b) => b.diasAtraso - a.diasAtraso);
-    const promesa = await insertarPromesa(userId, {
-      clienteId,
-      facturaId: abiertas[0]?.id ?? '',
-      monto: r.promesa.monto,
-      fechaCompromiso: new Date(Date.now() + r.promesa.dias * 86_400_000).toISOString(),
-      estado: 'pendiente'
-    });
-    await actualizarFacturas(userId, abiertas.map((f) => f.id), { estado: 'promesa' });
-    await actualizarEvento(userId, ev.id, {
-      estado: 'completado',
-      accion: 'Registró promesa de pago',
-      detalle: `${formatMXN(promesa.monto)} · ${cliente.empresa} · ${formatFecha(promesa.fechaCompromiso)}`
-    });
-    emitir({ tipo: 'promesa', promesa });
-  } else if (r.escalamiento) {
-    const escalamiento = await insertarEscalamiento(userId, clienteId, r.escalamiento.motivo);
-    await actualizarEvento(userId, ev.id, { estado: 'error', accion: 'Escaló a humano', detalle: `${cliente.empresa} · ${escalamiento.motivo}` });
-    emitir({ tipo: 'escalamiento', escalamiento });
-  } else {
-    await actualizarEvento(userId, ev.id, {
-      estado: envio.ok ? 'completado' : 'error',
-      accion: envio.ok ? 'Respondió al cliente' : 'No se pudo responder por WhatsApp',
-      detalle: envio.ok ? `${cliente.empresa} · negociación en curso` : `${cliente.empresa} · ${envio.error ?? ''}`
-    });
-  }
-
-  emitir({ tipo: 'fin', mensaje: msgAgente });
+  await emitirEvento(userId, {
+    agente: 'negociador', // 'negociador' = acciones del equipo humano
+    clienteId,
+    accion: 'Respondió al cliente',
+    detalle: cliente.empresa,
+    estado: 'completado'
+  });
+  return mensaje;
 }
 
-/** Ventana de 24 h abierta para un cliente (para la UI y el Redactor). */
-export const ventanaAbierta = (db: Db, clienteId: string) => estadoVentana(db.mensajes.filter((m) => m.clienteId === clienteId)).abierta;
+/** Registra la promesa de pago que el equipo acordó con el cliente. */
+export async function registrarPromesa(
+  userId: string,
+  clienteId: string,
+  datos: { monto: number; fecha: string }
+): Promise<PromesaPago> {
+  const db = await cargarDb(userId);
+  const cliente = db.clientes.find((c) => c.id === clienteId);
+  if (!cliente) throw new ErrorDeNegocio('Cliente no encontrado');
+  const resumen = resumir(db, cliente);
+  if (resumen.deuda <= 0) throw new ErrorDeNegocio('Este cliente no tiene saldo pendiente.');
+  if (datos.monto > resumen.deuda + 0.01) throw new ErrorDeNegocio(`El monto supera el saldo pendiente (${formatMXN(resumen.deuda)}).`);
+  const fecha = new Date(`${datos.fecha}T12:00:00`);
+  if (Number.isNaN(fecha.getTime()) || fecha < inicioDeHoy()) throw new ErrorDeNegocio('La fecha de pago debe ser hoy o posterior.');
+
+  const abiertas = facturasAbiertas(db, clienteId).sort((a, b) => b.diasAtraso - a.diasAtraso);
+  const promesa = await insertarPromesa(userId, {
+    clienteId,
+    facturaId: abiertas[0]?.id ?? '',
+    monto: Math.round(datos.monto * 100) / 100,
+    fechaCompromiso: fecha.toISOString(),
+    estado: 'pendiente'
+  });
+  await actualizarFacturas(userId, abiertas.map((f) => f.id), { estado: 'promesa' });
+  await emitirEvento(userId, {
+    agente: 'negociador',
+    clienteId,
+    accion: 'Registró una promesa de pago',
+    detalle: `${formatMXN(promesa.monto)} · ${cliente.empresa} · ${formatFecha(promesa.fechaCompromiso)}`,
+    estado: 'completado'
+  });
+  return promesa;
+}

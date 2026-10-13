@@ -33,7 +33,7 @@ datos.get('/dashboard', async (c) => c.json(construirDashboard(await cargarDb(c.
 
 datos.get('/clientes', async (c) => {
   const db = await cargarDb(c.get('userId'));
-  const { busqueda = '', estado = 'todos', prioridad = 'todas', orden = 'prioridad' } = c.req.query();
+  const { busqueda = '', estado = 'todos', prioridad = 'todas', orden = 'prioridad', atencion } = c.req.query();
   const q = normalizar(busqueda).trim();
   let lista = resumenes(db);
   if (q) {
@@ -44,6 +44,7 @@ datos.get('/clientes', async (c) => {
   }
   if (estado !== 'todos') lista = lista.filter((r) => r.estado === estado);
   if (prioridad !== 'todas') lista = lista.filter((r) => r.prioridad.nivel === prioridad);
+  if (atencion === 'true') lista = lista.filter((r) => r.requiereAtencion);
   lista.sort((a, b) => {
     if (orden === 'monto') return b.deuda - a.deuda;
     if (orden === 'atraso') return b.diasAtraso - a.diasAtraso;
@@ -118,7 +119,7 @@ datos.post('/promesas/:id/cumplir', async (c) => {
   await emitirEvento(userId, {
     agente: 'negociador',
     clienteId: promesa.clienteId,
-    accion: 'Promesa cumplida',
+    accion: 'Confirmó una promesa cumplida',
     detalle: `${cliente?.empresa ?? ''} · ${formatMXN(promesa.monto)}`,
     estado: 'completado'
   });

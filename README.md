@@ -1,13 +1,14 @@
 # Cobrix · Backend de agentes
 
-Cobrix es una app de cobranza para PyMEs mexicanas. Un equipo de **cuatro agentes de IA** prioriza la cartera, escribe a los deudores por **WhatsApp**, negocia fechas de pago y le reporta al administrador. El administrador conversa con el agente coordinador y **confirma cada envío**: es un esquema *human in the loop*.
+Cobrix es una app de cobranza por **WhatsApp** para PyMEs mexicanas. Automatiza lo repetitivo, que es decidir a quién cobrar primero y mandar los recordatorios con plantillas aprobadas por Meta, y deja la conversación con el cliente en manos de una persona del equipo, porque en este negocio la relación es personal. Dos asistentes de IA acompañan al usuario: el **Director** responde sobre la cartera y la **Guía** le enseña a usar la app.
 
-| Agente | Qué hace | Cómo está construido |
+| Pieza | Qué hace | Cómo está construida |
 |---|---|---|
-| **Director** | Conversa con el administrador, le da el estado de la cartera y delega en los demás agentes | `streamText` + 7 herramientas. Responde con componentes de UI dentro del chat: KPIs, gráficas, listas y confirmaciones |
-| **Analista** | Decide a quién cobrar primero y por qué | Score base determinista + `generateObject` (Zod) que lo ajusta ±15 y redacta la razón |
-| **Redactor** | Escribe el mensaje con el tono adecuado (amable → firme → final) | Fuera de la ventana de 24 h usa plantillas aprobadas por Meta; dentro de la ventana, la IA redacta |
-| **Negociador** | Contesta al deudor y registra promesas de pago o escala a un humano | `streamText` con *tool calling*: `registrar_promesa` y `escalar_a_humano` |
+| **Analista** (automático) | Decide a quién cobrar primero y explica por qué | Score 0-100 por reglas: atraso, monto, mensajes sin respuesta y promesas. Instantáneo y explicable |
+| **Redactor** (automático) | Envía el recordatorio que toca: amable → firme → final | Siempre plantilla aprobada por Meta, así que vale dentro y fuera de la ventana de 24 h |
+| **Tu equipo** (personas) | Contesta a los clientes y registra promesas de pago | Cuando un cliente responde queda en **"Requiere atención"** y sus recordatorios se pausan |
+| **Director** (IA) | Responde sobre la cartera con datos reales y prepara envíos que tú confirmas | `streamText` + 9 herramientas. Responde con KPIs, gráficas, listas y confirmaciones dentro del chat |
+| **Guía** (IA) | Enseña a usar Cobrix y lleva al usuario a la pantalla correcta | `streamText` con un manual de la app, el estado real de la cuenta (`estado_de_mi_cuenta`) y botones de navegación (`mostrar_boton`) |
 
 > Este repo es la **API de agentes** (Hono + Vercel AI SDK + Gemini + Supabase + WhatsApp Cloud API). La interfaz vive en el repo **cobrix-frontend** de la misma organización.
 
@@ -43,21 +44,22 @@ Cobrix es una app de cobranza para PyMEs mexicanas. Un equipo de **cuatro agente
 - **Límite de uso por usuario** en los endpoints de IA, para proteger la capa gratuita en una demo pública.
 - **Supabase en lugar de Neon y S3.** Ya tenía auth, realtime y storage integrados en un solo proveedor, lo que reduce complejidad en un MVP. Migrar los archivos a S3 sería directo.
 
-## Políticas de negociación (configurables por empresa)
+## Flujo de cobranza
 
-En **Ajustes → Políticas de negociación** cada empresa define qué puede ofrecer el Negociador:
+1. **Iniciar cobranza** (`POST /cobranza/iniciar`, NDJSON): el Analista recalcula la prioridad y el Redactor envía la plantilla que toca. Se omite a quien espera respuesta, tiene una promesa vigente, está en revisión o no tiene saldo. La respuesta lista los omitidos.
+2. **El cliente responde** (webhook de WhatsApp o simulador `POST /cobranza/responder`): se guarda el mensaje, se marca "requiere atención" y se avisa por Realtime. Ninguna IA le contesta.
+3. **El equipo contesta** (`POST /clientes/:id/responder`): texto libre por WhatsApp. Solo sale con la ventana de 24 h abierta; si está cerrada responde 409 con el motivo.
+4. **Promesa de pago** (`POST /clientes/:id/promesa`): monto y fecha. Se valida contra el saldo y pausa los recordatorios hasta esa fecha.
 
-- **Acuerdos:** número máximo de pagos, plazo máximo del primer pago, pago inicial mínimo, descuento por liquidar y tono más fuerte permitido.
-- **Escalamiento:** disputa, producto defectuoso, temas legales, petición de hablar con una persona y saldos mayores a un monto.
-- **Horario:** días y horas en que se pueden iniciar envíos. Las respuestas a clientes se atienden siempre.
+## Reglas de cobranza (configurables por empresa)
 
-Las reglas se le explican al modelo, pero **se hacen cumplir en el servidor**. `registrar_promesa` valida cada propuesta con `validarPromesa()` y, si no cumple, devuelve `registrada: false` con el motivo, así que el agente tiene que reformular. `escalar_a_humano` solo escala por los motivos activos. El Redactor y el Director respetan el tono máximo, y `/cobranza/iniciar` rechaza los envíos fuera de horario (HTTP 409). Las reglas de respaldo (sin IA) usan las mismas políticas.
+En **Ajustes → Reglas de cobranza** se define el **horario de envíos** (`/cobranza/iniciar` responde 409 fuera de horario) y el **tono máximo** de los recordatorios. Las reglas se aplican en el servidor.
 
 ## Estructura
 
 ```
 ├── src/
-│   ├── agents/      director, analista, redactor, negociador y respaldo (reglas sin IA)
+│   ├── agents/      director y guía (IA), analista y redactor (reglas), respaldo (sin IA)
 │   ├── channels/    whatsapp (Cloud API) y simulador
 │   ├── services/    flujos de cobranza (orquestación)
 │   ├── routes/      datos, agentes (streaming NDJSON) y webhook de WhatsApp
@@ -114,7 +116,7 @@ Sin estas variables, Cobrix usa el **simulador**: tú respondes como el cliente 
 | `cobrix_aviso_final` | {{1}}, este es nuestro último aviso sobre la factura {{2}} por {{3}}. Si no recibimos respuesta en 48 horas, el adeudo se turnará a nuestro despacho jurídico. Aún podemos acordar un plan de pagos si nos escribes hoy. |
 
 6. Configura `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN` y `WHATSAPP_APP_SECRET` en Render.
-7. En la app, ve a **Ajustes**: activa el canal **WhatsApp** y escribe tu número en **"Tu WhatsApp para pruebas"**. Como el número de prueba solo puede escribir a destinatarios registrados, todos los mensajes de la demo se redirigen a tu número, y lo que respondas llega al Negociador.
+7. En la app, ve a **Ajustes**: activa el canal **WhatsApp** y escribe tu número en **"Tu WhatsApp para pruebas"**. Como el número de prueba solo puede escribir a destinatarios registrados, todos los mensajes de la demo se redirigen a tu número, y lo que respondas desde tu teléfono aparece en la conversación del cliente, marcada como "Requiere atención".
 
 **Para producción:** verificación del negocio, número propio, plantillas aprobadas y App Review de Meta.
 

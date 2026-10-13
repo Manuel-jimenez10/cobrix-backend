@@ -1,7 +1,7 @@
 /**
  * Director: el agente coordinador con el que conversa el administrador.
  *
- * Cada herramienta "delega" en un agente (Analista, Negociador, Redactor),
+ * Cada herramienta "delega" en un agente (Analista o Redactor),
  * consulta datos REALES de la cartera y devuelve dos cosas:
  *   · un resumen compacto para el modelo (así no inventa cifras), y
  *   · bloques de UI (KPI, gráfica, lista de clientes, confirmación) que el
@@ -26,11 +26,12 @@ const DELEGACION: Record<string, { agente: AgenteId; texto: string }> = {
   estado_cartera: { agente: 'analista', texto: 'Consultando al Analista…' },
   buscar_clientes: { agente: 'analista', texto: 'Consultando al Analista…' },
   recuperacion: { agente: 'analista', texto: 'Revisando pagos con el Analista…' },
-  clientes_sin_respuesta: { agente: 'negociador', texto: 'Revisando conversaciones con el Negociador…' },
-  promesas_de_pago: { agente: 'negociador', texto: 'Revisando acuerdos con el Negociador…' },
-  casos_escalados: { agente: 'negociador', texto: 'Revisando casos escalados…' },
-  proponer_envio: { agente: 'redactor', texto: 'Pidiendo borradores al Redactor…' },
-  politicas_vigentes: { agente: 'negociador', texto: 'Revisando las políticas de negociación…' }
+  clientes_sin_respuesta: { agente: 'analista', texto: 'Revisando conversaciones…' },
+  clientes_por_atender: { agente: 'analista', texto: 'Buscando quién espera tu respuesta…' },
+  promesas_de_pago: { agente: 'analista', texto: 'Revisando promesas de pago…' },
+  casos_escalados: { agente: 'analista', texto: 'Revisando casos en revisión…' },
+  proponer_envio: { agente: 'redactor', texto: 'Preparando recordatorios con el Redactor…' },
+  politicas_vigentes: { agente: 'analista', texto: 'Revisando tus reglas de cobranza…' }
 };
 
 const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -48,7 +49,8 @@ const compacto = (c: ClienteResumen) => ({
   estado: c.estado,
   prioridad: c.prioridad.nivel,
   score: c.prioridad.score,
-  escalado: c.escalado
+  escalado: c.escalado,
+  esperaRespuesta: c.requiereAtencion
 });
 
 function historialParaModelo(mensajes: MensajeDirector[]) {
@@ -80,7 +82,7 @@ function crearHerramientas(db: Db, bloquesPorLlamada: Map<string, BloqueDirector
       .filter(({ ms }) => ms.length > 0 && ms[ms.length - 1].rol === 'agente')
       .sort((a, b) => b.r.deuda - a.r.deuda);
 
-  const elegibles = (lista: ClienteResumen[]) => lista.filter((r) => r.deuda > 0 && !r.escalado && r.estado !== 'promesa');
+  const elegibles = (lista: ClienteResumen[]) => lista.filter((r) => r.deuda > 0 && !r.escalado && !r.requiereAtencion && r.estado !== 'promesa');
 
   return {
     estado_cartera: tool({
@@ -146,6 +148,16 @@ function crearHerramientas(db: Db, bloquesPorLlamada: Map<string, BloqueDirector
       }
     }),
 
+    clientes_por_atender: tool({
+      description: 'Clientes que respondieron y esperan que alguien del equipo les conteste (sus recordatorios están en pausa).',
+      inputSchema: z.object({}),
+      execute: async (_, { toolCallId }) => {
+        const lista = rs.filter((r) => r.requiereAtencion).sort((a, b) => b.deuda - a.deuda);
+        guardar(toolCallId, lista.length ? [aBloqueClientes('Esperan tu respuesta', lista, (c) => `“${(c.ultimoMensaje?.contenido ?? '').slice(0, 48)}” · ${tiempoRelativo(c.ultimoMensaje?.fecha ?? new Date().toISOString())}`)] : []);
+        return { total: lista.length, clientes: lista.map((c) => ({ ...compacto(c), ultimoMensajeDelCliente: c.ultimoMensaje?.contenido })) };
+      }
+    }),
+
     promesas_de_pago: tool({
       description: 'Promesas de pago pendientes (montos y fechas comprometidas).',
       inputSchema: z.object({}),
@@ -170,7 +182,7 @@ function crearHerramientas(db: Db, bloquesPorLlamada: Map<string, BloqueDirector
     }),
 
     casos_escalados: tool({
-      description: 'Casos que el Negociador pasó a revisión humana y su motivo.',
+      description: 'Casos marcados en revisión del equipo y su motivo.',
       inputSchema: z.object({}),
       execute: async (_, { toolCallId }) => {
         const casos = db.escalamientos.filter((e) => !e.resuelto);
@@ -186,8 +198,8 @@ function crearHerramientas(db: Db, bloquesPorLlamada: Map<string, BloqueDirector
 
     proponer_envio: tool({
       description:
-        'Prepara un envío de mensajes de cobranza y pide CONFIRMACIÓN al administrador (no envía nada por sí mismo). ' +
-        'Excluye automáticamente clientes escalados, con promesa activa o sin saldo.',
+        'Prepara un envío de recordatorios (plantillas aprobadas) y pide CONFIRMACIÓN al administrador (no envía nada por sí mismo). ' +
+        'Excluye automáticamente clientes que esperan respuesta del equipo, en revisión, con promesa activa o sin saldo.',
       inputSchema: z.object({
         grupo: z.enum(['prioridad_alta', 'vencidos', 'sin_respuesta', 'seleccion']).describe('A quién escribir'),
         clienteIds: z.array(z.string()).optional().describe('Solo si grupo = seleccion: ids de clientes obtenidos de otras herramientas'),
@@ -207,7 +219,7 @@ function crearHerramientas(db: Db, bloquesPorLlamada: Map<string, BloqueDirector
           {
             tipo: 'confirmacion',
             id: `conf_${randomUUID().slice(0, 8)}`,
-            mensaje: `Voy a enviar mensajes con tono ${tono} a ${objetivo.length} cliente${objetivo.length === 1 ? '' : 's'}. ¿Confirmas?`,
+            mensaje: `Voy a enviar el recordatorio ${tono} a ${objetivo.length} cliente${objetivo.length === 1 ? '' : 's'}. ¿Confirmas?`,
             clienteIds: objetivo.map((c) => c.id),
             tono,
             estado: 'pendiente'
@@ -215,7 +227,7 @@ function crearHerramientas(db: Db, bloquesPorLlamada: Map<string, BloqueDirector
         ] : []);
         return {
           clientes: objetivo.length,
-          omitidosPorEscaladoOPromesa: omitidos,
+          omitidosPorEsperarRespuestaEscaladoOPromesa: omitidos,
           requiereConfirmacion: objetivo.length > 0,
           tono,
           tonoAjustadoPorPolitica: tono !== tonoPedido
@@ -224,14 +236,14 @@ function crearHerramientas(db: Db, bloquesPorLlamada: Map<string, BloqueDirector
     }),
 
     politicas_vigentes: tool({
-      description: 'Políticas de negociación configuradas por la empresa (pagos permitidos, plazos, descuentos, escalamiento, horario).',
+      description: 'Reglas de cobranza de la empresa: horario de envíos, tono máximo y criterios de referencia para acuerdos.',
       inputSchema: z.object({}),
       execute: async () => ({
         politicas: describirParaAgente(db.perfil.politicas),
         tonoMaximo: db.perfil.politicas.tonoMaximo,
         horario: describirHorario(db.perfil.politicas),
         escalaSaldosMayoresA: db.perfil.politicas.escalar.montoMayorA,
-        dondeCambiarlas: 'Ajustes → Políticas de negociación'
+        dondeCambiarlas: 'Ajustes → Reglas de cobranza'
       })
     })
   };
@@ -276,7 +288,7 @@ export async function dirigir(db: Db, mensajes: MensajeDirector[], emitir: Emiti
       tools: crearHerramientas(db, bloquesPorLlamada),
       system: [
         `Eres el Director de cobranza de ${db.perfil.empresa}. Conversas con ${db.perfil.nombre}, el administrador. Hoy es ${hoyTexto()}.`,
-        'Coordinas a tres agentes: Analista (prioriza la cartera), Redactor (escribe mensajes) y Negociador (conversa con los deudores).',
+        'Coordinas la automatización: el Analista prioriza la cartera por reglas y el Redactor envía recordatorios con plantillas aprobadas. Las conversaciones con los clientes las lleva una persona del equipo: cuando un cliente responde, queda en "requiere atención". Si preguntan qué hacer hoy, menciona primero a quién hay que contestar.',
         'Reglas:',
         '- SIEMPRE usa herramientas para obtener cifras o listas; nunca inventes datos.',
         '- Las herramientas ya muestran tarjetas y listas en pantalla: no repitas cada número; da una conclusión y una recomendación en 1 a 3 frases.',

@@ -62,7 +62,7 @@ export const prioridades: Prioridad[] = [
 { clienteId: 'c07', score: 93, nivel: 'alta', razon: 'Dos facturas vencidas, la más antigua con 120 días. Respondió una vez hace un mes prometiendo pagar al cobrar una obra y después dejó de contestar.' },
 { clienteId: 'c09', score: 84, nivel: 'alta', razon: '$54,300 con 46 días de atraso. Pagó puntual todo el año pasado: parece un problema de flujo temporal, con alta probabilidad de recuperar si se contacta pronto.' },
 { clienteId: 'c01', score: 81, nivel: 'alta', razon: 'Dos facturas acumuladas ($48,750). Reconoció la deuda ayer y pidió opciones de pago: es el mejor momento para cerrar un plan.' },
-{ clienteId: 'c05', score: 78, nivel: 'alta', razon: '95 días de atraso, pero disputa el cargo por una refacción defectuosa. Escalado a humano: no conviene enviar mensajes automáticos hasta resolverlo.' },
+{ clienteId: 'c05', score: 78, nivel: 'alta', razon: '95 días de atraso, pero disputa el cargo por una refacción defectuosa. En revisión del equipo: no conviene enviar mensajes automáticos hasta resolverlo.' },
 { clienteId: 'c12', score: 66, nivel: 'media', razon: '74 días de atraso, aunque responde rápido y pidió copia de la factura. Probablemente es un tema administrativo, no de liquidez.' },
 { clienteId: 'c13', score: 58, nivel: 'media', razon: '52 días de atraso con monto moderado. Se envió el primer recordatorio ayer y aún no responde.' },
 { clienteId: 'c15', score: 52, nivel: 'media', razon: 'Prometió pagar el total esta semana. Monto relevante ($39,800): vale la pena vigilar que cumpla.' },
@@ -79,7 +79,6 @@ export const mensajes: Mensaje[] = [
 { id: 'm01', clienteId: 'c01', rol: 'agente', agente: 'redactor', tono: 'amable', esPlantilla: true, fecha: hace(12, 2), contenido: 'Hola Jorge, buen día. Te escribimos de Distribuidora del Valle para recordarte que la factura F-1042 por $28,500.00 MXN está pendiente de pago. ¿Nos ayudas confirmando la fecha en que podrás cubrirla? ¡Gracias!' },
 { id: 'm02', clienteId: 'c01', rol: 'agente', agente: 'redactor', tono: 'firme', esPlantilla: true, fecha: hace(4, 1), contenido: 'Jorge, seguimos sin registrar el pago de las facturas F-1042 y F-1088 por un total de $48,750.00 MXN. Necesitamos acordar una fecha esta semana para evitar recargos. Responde este mensaje y lo resolvemos.' },
 { id: 'm03', clienteId: 'c01', rol: 'cliente', agente: null, tono: null, esPlantilla: false, fecha: hace(0, 6), contenido: 'Hola, sí ya sé. Este mes estuvo muy flojo, ¿podemos ver una opción en pagos?' },
-{ id: 'm04', clienteId: 'c01', rol: 'agente', agente: 'negociador', tono: 'amable', esPlantilla: false, fecha: hace(0, 5, 50), contenido: 'Claro, Jorge. Podemos dividirlo en dos pagos de $24,375.00 MXN: el primero este viernes y el segundo 15 días después. ¿Te funciona?' },
 
 { id: 'm05', clienteId: 'c02', rol: 'agente', agente: 'redactor', tono: 'amable', esPlantilla: true, fecha: hace(40, 3), contenido: 'Hola Ramón, buen día. Te escribimos de Distribuidora del Valle para recordarte que la factura F-0981 por $85,000.00 MXN está pendiente de pago. ¿Nos ayudas confirmando la fecha en que podrás cubrirla? ¡Gracias!' },
 { id: 'm06', clienteId: 'c02', rol: 'agente', agente: 'redactor', tono: 'firme', esPlantilla: true, fecha: hace(25, 2), contenido: 'Ramón, seguimos sin registrar el pago de la factura F-0981 por $85,000.00 MXN, con 87 días de atraso. Necesitamos acordar una fecha de pago esta semana para evitar recargos.' },
@@ -87,48 +86,48 @@ export const mensajes: Mensaje[] = [
 
 { id: 'm08', clienteId: 'c03', rol: 'agente', agente: 'redactor', tono: 'amable', esPlantilla: true, fecha: hace(3, 2), contenido: 'Hola María, buen día. Te escribimos de Distribuidora del Valle para recordarte que la factura F-1120 por $6,480.00 MXN está pendiente de pago. ¿Nos ayudas confirmando la fecha en que podrás cubrirla? ¡Gracias!' },
 { id: 'm09', clienteId: 'c03', rol: 'cliente', agente: null, tono: null, esPlantilla: false, fecha: hace(0, 7), contenido: 'Hola, perdón por la demora. Hoy en la tarde les deposito los $6,480.' },
-{ id: 'm10', clienteId: 'c03', rol: 'agente', agente: 'negociador', tono: 'amable', esPlantilla: false, fecha: hace(0, 6, 55), contenido: '¡Muchas gracias, María! Registré tu compromiso de pago para hoy por $6,480.00 MXN. Te confirmamos en cuanto lo recibamos.' },
+{ id: 'm10', clienteId: 'c03', rol: 'agente', agente: null, tono: null, esPlantilla: false, fecha: hace(0, 6, 55), contenido: '¡Muchas gracias, María! Registré tu compromiso de pago para hoy por $6,480.00 MXN. Te confirmamos en cuanto lo recibamos.' },
 
 { id: 'm11', clienteId: 'c05', rol: 'agente', agente: 'redactor', tono: 'amable', esPlantilla: true, fecha: hace(30, 1), contenido: 'Hola Luis Fernando, buen día. Te escribimos de Distribuidora del Valle para recordarte que la factura F-1003 por $31,200.00 MXN está pendiente de pago. ¿Nos ayudas confirmando la fecha en que podrás cubrirla?' },
 { id: 'm12', clienteId: 'c05', rol: 'agente', agente: 'redactor', tono: 'firme', esPlantilla: true, fecha: hace(14, 3), contenido: 'Luis Fernando, seguimos sin registrar el pago de la factura F-1003 por $31,200.00 MXN, con 81 días de atraso. Necesitamos acordar una fecha de pago esta semana.' },
 { id: 'm13', clienteId: 'c05', rol: 'cliente', agente: null, tono: null, esPlantilla: false, fecha: hace(2, 4), contenido: 'Ese cargo de $31,200 no lo reconozco completo, la refacción llegó defectuosa y ya la regresamos. No pienso pagar eso así.' },
-{ id: 'm14', clienteId: 'c05', rol: 'agente', agente: 'negociador', tono: 'amable', esPlantilla: false, fecha: hace(2, 3, 55), contenido: 'Gracias por avisarnos, Luis Fernando. Para revisarlo con cuidado, voy a pasar tu caso a una persona de nuestro equipo. Te contactarán hoy mismo y mientras tanto pausamos los recordatorios.' },
+{ id: 'm14', clienteId: 'c05', rol: 'agente', agente: null, tono: null, esPlantilla: false, fecha: hace(2, 3, 55), contenido: 'Gracias por avisarnos, Luis Fernando. Lo reviso con almacén y te marco hoy mismo; mientras tanto pausamos los recordatorios.' },
 
 { id: 'm15', clienteId: 'c09', rol: 'agente', agente: 'redactor', tono: 'amable', esPlantilla: true, fecha: hace(9, 5), contenido: 'Hola Ricardo, buen día. Te escribimos de Distribuidora del Valle para recordarte que la factura F-1061 por $54,300.00 MXN está pendiente de pago. ¿Nos ayudas confirmando la fecha en que podrás cubrirla? ¡Gracias!' },
 
 { id: 'm16', clienteId: 'c12', rol: 'agente', agente: 'redactor', tono: 'amable', esPlantilla: true, fecha: hace(5, 2), contenido: 'Hola Verónica, buen día. Te escribimos de Distribuidora del Valle para recordarte que la factura F-1030 por $26,750.00 MXN está pendiente de pago. ¿Nos ayudas confirmando la fecha en que podrás cubrirla? ¡Gracias!' },
 { id: 'm17', clienteId: 'c12', rol: 'cliente', agente: null, tono: null, esPlantilla: false, fecha: hace(0, 2, 10), contenido: 'Buenas, ¿me pueden reenviar la factura? No la encuentro en el correo.' },
-{ id: 'm18', clienteId: 'c12', rol: 'agente', agente: 'negociador', tono: 'amable', esPlantilla: false, fecha: hace(0, 2, 5), contenido: 'Claro, Verónica. Te la reenvié a compras@farmaciasanrafael.mx. ¿Podrías confirmarnos la fecha de pago una vez que la revises?' },
+{ id: 'm18', clienteId: 'c12', rol: 'agente', agente: null, tono: null, esPlantilla: false, fecha: hace(0, 2, 5), contenido: 'Claro, Verónica. Te la reenvié a compras@farmaciasanrafael.mx. ¿Podrías confirmarnos la fecha de pago una vez que la revises?' },
 
 { id: 'm19', clienteId: 'c15', rol: 'agente', agente: 'redactor', tono: 'firme', esPlantilla: true, fecha: hace(6, 3), contenido: 'Fernando, seguimos sin registrar el pago de la factura F-1080 por $39,800.00 MXN, con 35 días de atraso. Necesitamos acordar una fecha de pago esta semana para evitar recargos.' },
 { id: 'm20', clienteId: 'c15', rol: 'cliente', agente: null, tono: null, esPlantilla: false, fecha: hace(3, 1), contenido: 'Les pago completo el jueves, ya tengo el dinero comprometido.' },
-{ id: 'm21', clienteId: 'c15', rol: 'agente', agente: 'negociador', tono: 'amable', esPlantilla: false, fecha: hace(3, 0, 55), contenido: 'Perfecto, Fernando. Queda registrada tu promesa de pago por $39,800.00 MXN para el jueves. ¡Gracias!' },
+{ id: 'm21', clienteId: 'c15', rol: 'agente', agente: null, tono: null, esPlantilla: false, fecha: hace(3, 0, 55), contenido: 'Perfecto, Fernando. Queda registrada tu promesa de pago por $39,800.00 MXN para el jueves. ¡Gracias!' },
 
 { id: 'm22', clienteId: 'c08', rol: 'agente', agente: 'redactor', tono: 'amable', esPlantilla: true, fecha: hace(5, 2), contenido: 'Hola Sofía, buen día. Te escribimos de Distribuidora del Valle para recordarte que la factura F-1138 por $9,860.00 MXN está pendiente de pago. ¿Nos ayudas confirmando la fecha en que podrás cubrirla? ¡Gracias!' },
 { id: 'm23', clienteId: 'c08', rol: 'cliente', agente: null, tono: null, esPlantilla: false, fecha: hace(4, 6), contenido: 'Sí, les pago el lunes sin falta.' },
-{ id: 'm24', clienteId: 'c08', rol: 'agente', agente: 'negociador', tono: 'amable', esPlantilla: false, fecha: hace(4, 5, 55), contenido: 'Gracias, Sofía. Registré tu compromiso de pago por $9,860.00 MXN para el lunes.' },
+{ id: 'm24', clienteId: 'c08', rol: 'agente', agente: null, tono: null, esPlantilla: false, fecha: hace(4, 5, 55), contenido: 'Gracias, Sofía. Registré tu compromiso de pago por $9,860.00 MXN para el lunes.' },
 
 { id: 'm25', clienteId: 'c13', rol: 'agente', agente: 'redactor', tono: 'amable', esPlantilla: true, fecha: hace(1, 3), contenido: 'Hola Eduardo, buen día. Te escribimos de Distribuidora del Valle para recordarte que la factura F-1072 por $15,600.00 MXN está pendiente de pago. ¿Nos ayudas confirmando la fecha en que podrás cubrirla? ¡Gracias!' },
 
 { id: 'm26', clienteId: 'c07', rol: 'agente', agente: 'redactor', tono: 'amable', esPlantilla: true, fecha: hace(50, 2), contenido: 'Hola Héctor, buen día. Te escribimos de Distribuidora del Valle para recordarte que la factura F-0955 por $47,400.00 MXN está pendiente de pago. ¿Nos ayudas confirmando la fecha en que podrás cubrirla?' },
 { id: 'm27', clienteId: 'c07', rol: 'cliente', agente: null, tono: null, esPlantilla: false, fecha: hace(32, 5), contenido: 'Ahorita no tengo, en cuanto me paguen una obra les pago todo.' },
-{ id: 'm28', clienteId: 'c07', rol: 'agente', agente: 'negociador', tono: 'firme', esPlantilla: false, fecha: hace(32, 4), contenido: 'Entiendo, Héctor. Para no seguir acumulando atraso, ¿podemos acordar al menos un primer abono de $15,000.00 MXN este mes?' },
+{ id: 'm28', clienteId: 'c07', rol: 'agente', agente: null, tono: null, esPlantilla: false, fecha: hace(32, 4), contenido: 'Entiendo, Héctor. Para no seguir acumulando atraso, ¿podemos acordar al menos un primer abono de $15,000.00 MXN este mes?' },
 { id: 'm29', clienteId: 'c07', rol: 'agente', agente: 'redactor', tono: 'firme', esPlantilla: true, fecha: hace(10, 2), contenido: 'Héctor, seguimos sin registrar el pago de las facturas F-0955 y F-0990 por $72,400.00 MXN. Necesitamos acordar una fecha de pago esta semana para evitar recargos.' },
 
 { id: 'm30', clienteId: 'c11', rol: 'agente', agente: 'redactor', tono: 'amable', esPlantilla: true, fecha: hace(5, 4), contenido: 'Hola Arturo, buen día. Te escribimos de Distribuidora del Valle para recordarte que la factura F-1109 por $18,900.00 MXN está pendiente de pago. ¿Nos ayudas confirmando la fecha en que podrás cubrirla? ¡Gracias!' },
 { id: 'm31', clienteId: 'c11', rol: 'cliente', agente: null, tono: null, esPlantilla: false, fecha: hace(2, 2), contenido: 'Buenas, les pago el próximo viernes cuando cierre la quincena.' },
-{ id: 'm32', clienteId: 'c11', rol: 'agente', agente: 'negociador', tono: 'amable', esPlantilla: false, fecha: hace(2, 1, 50), contenido: 'Perfecto, Arturo. Queda registrado tu compromiso por $18,900.00 MXN. ¡Gracias por avisar!' }];
+{ id: 'm32', clienteId: 'c11', rol: 'agente', agente: null, tono: null, esPlantilla: false, fecha: hace(2, 1, 50), contenido: 'Perfecto, Arturo. Queda registrado tu compromiso por $18,900.00 MXN. ¡Gracias por avisar!' }];
 
 
 export const eventosAgente: EventoAgente[] = [
 { id: 'e01', clienteId: null, agente: 'analista', accion: 'Recalculó prioridades', detalle: '15 clientes evaluados · 5 en prioridad alta', estado: 'completado', fecha: hace(0, 0, 3) },
 { id: 'e02', clienteId: 'c13', agente: 'redactor', accion: 'Preparó seguimiento', detalle: 'Tono amable para Imprenta Morales', estado: 'completado', fecha: hace(0, 0, 9) },
-{ id: 'e03', clienteId: 'c12', agente: 'negociador', accion: 'Respondió al cliente', detalle: 'Reenvió la factura F-1030 a Farmacia San Rafael', estado: 'completado', fecha: hace(0, 0, 18) },
+{ id: 'e03', clienteId: 'c12', agente: 'negociador', accion: 'Respondió al cliente', detalle: 'Reenvío de la factura F-1030 · Farmacia San Rafael', estado: 'completado', fecha: hace(0, 0, 18) },
 { id: 'e04', clienteId: null, agente: 'director', accion: 'Resumen matutino listo', detalle: '$354,400 vencidos · 4 promesas activas', estado: 'completado', fecha: hace(0, 0, 34) },
-{ id: 'e05', clienteId: 'c03', agente: 'negociador', accion: 'Registró promesa de pago', detalle: '$6,480.00 MXN · Abarrotes Doña Mary · hoy', estado: 'completado', fecha: hace(0, 0, 52) },
+{ id: 'e05', clienteId: 'c03', agente: 'negociador', accion: 'Registró una promesa de pago', detalle: '$6,480.00 MXN · Abarrotes Doña Mary · hoy', estado: 'completado', fecha: hace(0, 0, 52) },
 { id: 'e06', clienteId: 'c09', agente: 'analista', accion: 'Subió prioridad', detalle: 'Transportes Gómez pasó de media a alta', estado: 'completado', fecha: hace(0, 1, 15) },
-{ id: 'e07', clienteId: 'c05', agente: 'negociador', accion: 'Escaló a humano', detalle: 'Refaccionaria Castillo disputa el cargo', estado: 'error', fecha: hace(0, 2, 5) },
-{ id: 'e08', clienteId: 'c01', agente: 'negociador', accion: 'Propuso plan de pagos', detalle: 'Dos pagos de $24,375.00 MXN · Ferretería López', estado: 'completado', fecha: hace(0, 3, 40) }];
+{ id: 'e07', clienteId: 'c05', agente: 'negociador', accion: 'Marcó el caso en revisión', detalle: 'Refaccionaria Castillo disputa el cargo', estado: 'completado', fecha: hace(0, 2, 5) },
+{ id: 'e08', clienteId: 'c01', agente: 'analista', accion: 'Detectó una respuesta · requiere tu atención', detalle: 'Ferretería López pidió opciones de pago', estado: 'completado', fecha: hace(0, 6) }];
 
 
 export const promesas: PromesaPago[] = [

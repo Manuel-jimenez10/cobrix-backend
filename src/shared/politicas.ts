@@ -92,7 +92,7 @@ export function describirHorario(p: Politicas): string {
 export type ResultadoValidacion = { ok: true } | { ok: false; motivo: string };
 
 /**
- * Valida una promesa de pago contra la política. La usa la herramienta registrar_promesa del Negociador:
+ * Valida una promesa de pago contra la política. Hoy se conserva como referencia (las promesas las registra el equipo):
  * si no cumple, el agente recibe el motivo y debe reformular su propuesta.
  */
 export function validarPromesa(
